@@ -4,7 +4,9 @@ This upgrade is not ready to merge. The base library builds and its test harness
 
 The work is independent of Node bindings PR #13 and follower-cursor issue #12. Neither is implemented or declared fixed here.
 
-The existing worktree branch is `chore/haqlite-upstream-dependency-upgrade`, with managed target `main`. Starting HEAD, local `main` and `origin/main` all matched `db6db54b555a56c7352a5c9d57f1b998da05d199` before editing. Implementation stayed in that worktree. No commits, pushes, PRs or issue/comment changes were made.
+A follow-up [upstream repair patch set](../patches/README.md) addresses the Flotilla failures and manifest-adoption deadlocks in isolated validation copies. The proposed repairs are not applied to the Git-pinned dependencies selected by this checkout.
+
+The existing worktree branch is `chore/haqlite-upstream-dependency-upgrade`, with managed target `main`. Starting HEAD, local `main` and `origin/main` all matched `db6db54b555a56c7352a5c9d57f1b998da05d199` before editing. Implementation stayed in that worktree. The upgrade was subsequently committed as `9b20551b12bafe9bcbf10f696a7a6972b8e5998d` at the user's request. No pushes, PRs or issue/comment changes were made.
 
 ## Source revisions
 
@@ -88,7 +90,7 @@ The pinned native `sync_wal_fenced_delta` reads and advances WAL checksum-chain 
 
 ### A reopened tiered leader's write is missing
 
-`flotilla_regression::continuous_leader_publishes_replayed_base_before_new_writes` fails because the third node cannot find the second leader's row. This remains unresolved. The failure is not attributed solely to an upstream bug without a separate isolated proof.
+`flotilla_regression::continuous_leader_publishes_replayed_base_before_new_writes` fails because the third node cannot find the second leader's row. This remains unresolved in the selected Git dependencies. The follow-up patch set proves that walrust's empty-WAL SQLite probe unlinks the external VFS's live WAL. Its native regression and this three-node test pass with the proposed non-mutating probe.
 
 The final serial Flotilla run reports 14 passed, 2 failed and one existing ignored stress test. Earlier parallel runs also tripped latency and file-descriptor assertions; those assertions passed in the final serial run.
 
