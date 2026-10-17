@@ -55,7 +55,7 @@ fn build_coordinator(
         "test/",
         replication_config,
     ));
-    let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
+    let follower_behavior = Arc::new(SqliteFollowerBehavior::new());
     Coordinator::new(
         replicator,
         None, // manifest_store
@@ -1530,7 +1530,7 @@ fn build_coordinator_fast(
         "test-fast/",
         replication_config,
     ));
-    let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
+    let follower_behavior = Arc::new(SqliteFollowerBehavior::new());
     Coordinator::new(
         replicator,
         None, // manifest_store

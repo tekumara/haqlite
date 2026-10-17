@@ -623,6 +623,7 @@ impl FollowerBehavior for TurboliteFollowerBehavior {
 
     async fn catchup_on_promotion(
         &self,
+        _replicator: Arc<dyn Replicator>,
         _prefix: &str,
         db_name: &str,
         db_path: &PathBuf,

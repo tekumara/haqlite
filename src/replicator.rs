@@ -1,6 +1,7 @@
 //! SQLite replicator implementation using walrust.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -12,7 +13,69 @@ use walrust::{ReplicationConfig, SnapshotOwnership, SnapshotSource};
 
 use hadb::Replicator;
 
-use crate::epoch_fence;
+use crate::epoch_fence::{self, AppliedEpoch};
+
+#[derive(Default)]
+struct ReplaySession {
+    cursor: Option<walrust::ReplayCursor>,
+    epoch: AppliedEpoch,
+}
+
+/// One owner for restore, live replay and promotion catch-up. Scope receipts
+/// (including epoch high-water marks) to the local database, not the remote head.
+#[derive(Default)]
+struct ReplaySessions(tokio::sync::Mutex<HashMap<(String, PathBuf), ReplaySession>>);
+
+impl ReplaySession {
+    async fn gate_epoch(&self, inner: &walrust::Replicator, name: &str) -> Result<()> {
+        if let Some(epoch) =
+            epoch_fence::read_leader_epoch(inner.storage().as_ref(), inner.prefix(), name).await?
+        {
+            self.epoch.admit(name, epoch)?;
+        }
+        Ok(())
+    }
+
+    async fn replay(
+        &mut self,
+        inner: &walrust::Replicator,
+        name: &str,
+        path: &Path,
+        allow_fork_bridge: bool,
+    ) -> Result<u64> {
+        self.gate_epoch(inner, name).await?;
+        let Some(cursor) = self.cursor else {
+            let tail = walrust::hadb_changeset::storage::discover_after(
+                inner.storage().as_ref(),
+                inner.prefix(),
+                name,
+                0,
+                walrust::hadb_changeset::storage::ChangesetKind::Physical,
+            )
+            .await?;
+            if !tail.is_empty() {
+                anyhow::bail!("no snapshot for '{name}': refusing an unanchored incremental tail");
+            }
+            return Ok(0);
+        };
+        let policy = if allow_fork_bridge {
+            walrust::ReplayPolicy::AllowForkBridge
+        } else {
+            walrust::ReplayPolicy::Strict
+        };
+        let cursor = walrust::pull_incremental_with_cursor(
+            inner.storage().as_ref(),
+            inner.prefix(),
+            name,
+            path,
+            cursor,
+            policy,
+        )
+        .await?;
+        self.cursor = Some(cursor);
+        Ok(cursor.seq)
+    }
+}
 
 /// SQLite replicator wrapping walrust.
 ///
@@ -35,44 +98,7 @@ pub struct SqliteReplicator {
     /// in single-node / no-lease deployments: the marker is never written and
     /// the follower never gates, preserving the legacy behavior.
     fence: Option<AtomicFence>,
-}
-
-/// Guard against `pull_incremental` silently bridging a forked history (F5).
-///
-/// `restore()` applies every chain-valid contiguous incremental after the
-/// snapshot and stops at the first checksum-chain break. So any changeset
-/// object still present after `restored_seq` is one `restore()` deliberately
-/// refused — a fork from a prior lineage. `pull_incremental` would then apply
-/// it by raw page content, merging the fork. Unless fork-bridging is explicitly
-/// acknowledged, that is a hard error.
-async fn ensure_no_fork_after_restore(
-    storage: &dyn StorageBackend,
-    prefix: &str,
-    name: &str,
-    restored_seq: u64,
-    allow_fork_bridge: bool,
-) -> Result<()> {
-    if allow_fork_bridge {
-        return Ok(());
-    }
-    let leftover = walrust::hadb_changeset::storage::discover_after(
-        storage,
-        prefix,
-        name,
-        restored_seq,
-        walrust::hadb_changeset::storage::ChangesetKind::Physical,
-    )
-    .await?;
-    if let Some(first) = leftover.first() {
-        anyhow::bail!(
-            "refusing to bridge a chain break for '{}': restore stopped at seq {} but {} changeset(s) remain (next at seq {}); these are a forked lineage restore refused. Enable explicit fork-ack to bridge.",
-            name,
-            restored_seq,
-            leftover.len(),
-            first.seq,
-        );
-    }
-    Ok(())
+    replay: ReplaySessions,
 }
 
 impl SqliteReplicator {
@@ -87,13 +113,14 @@ impl SqliteReplicator {
             skip_snapshot_on_add: false,
             allow_fork_bridge: false,
             fence: None,
+            replay: ReplaySessions::default(),
         }
     }
 
     /// Attach the lease fence so each `sync()` stamps the current leader epoch
-    /// into the per-database `_epoch` marker (F11). Pair this with the same
-    /// fence handed to the follower behavior so a former leader's stale
-    /// changesets are rejected on apply.
+    /// into the per-database `_epoch` marker (F11). Restore and replay retain
+    /// the highest accepted marker so a former leader's stale changesets are
+    /// rejected on apply.
     pub fn with_fence(mut self, fence: AtomicFence) -> Self {
         self.fence = Some(fence);
         self
@@ -125,7 +152,15 @@ impl SqliteReplicator {
     ///
     /// This is SQLite-specific and not part of the generic Replicator trait.
     pub async fn restore(&self, name: &str, output_path: &Path) -> Result<Option<u64>> {
-        self.inner.restore(name, output_path).await
+        let mut sessions = self.replay.0.lock().await;
+        let session = sessions
+            .entry((name.to_string(), output_path.to_path_buf()))
+            .or_default();
+        session.gate_epoch(&self.inner, name).await?;
+        session.cursor = None;
+        let cursor = self.inner.restore_with_cursor(name, output_path).await?;
+        session.cursor = cursor;
+        Ok(cursor.map(|cursor| cursor.seq))
     }
 
     /// Register a database without taking a snapshot.
@@ -173,6 +208,7 @@ pub struct ExternalSnapshotSqliteReplicator {
     snapshot_source: Arc<dyn SnapshotSource>,
     /// See `SqliteReplicator::allow_fork_bridge` (F5). Default false.
     allow_fork_bridge: bool,
+    replay: ReplaySessions,
 }
 
 impl ExternalSnapshotSqliteReplicator {
@@ -198,6 +234,7 @@ impl ExternalSnapshotSqliteReplicator {
             inner: walrust::Replicator::try_new(storage, prefix, config)?,
             snapshot_source,
             allow_fork_bridge: false,
+            replay: ReplaySessions::default(),
         })
     }
 
@@ -252,48 +289,45 @@ impl Replicator for SqliteReplicator {
     }
 
     async fn add_continuing(&self, name: &str, path: &Path) -> Result<()> {
+        // Serialize against any replay finishing as promotion stops the loop.
+        let _sessions = self.replay.0.lock().await;
         self.inner.add_without_snapshot(name, path).await
     }
 
     async fn pull(&self, name: &str, path: &Path) -> Result<()> {
-        // Restore from latest snapshot + chained incrementals.
-        let restored_seq = self.inner.restore(name, path).await?;
-        let seq = restored_seq.unwrap_or(0);
+        self.pull_with_position(name, path).await.map(|_| ())
+    }
 
-        // F5: a changeset still present after `restored_seq` is one restore
-        // refused for a checksum-chain break (a forked lineage). Bridging it
-        // by page content silently merges divergent history, so hard-error
-        // unless fork-bridging is explicitly acknowledged.
-        ensure_no_fork_after_restore(
-            self.inner.storage().as_ref(),
-            self.inner.prefix(),
-            name,
-            seq,
-            self.allow_fork_bridge,
-        )
-        .await?;
+    async fn pull_with_position(&self, name: &str, path: &Path) -> Result<u64> {
+        let mut sessions = self.replay.0.lock().await;
+        let session = sessions
+            .entry((name.to_string(), path.to_path_buf()))
+            .or_default();
+        session.gate_epoch(&self.inner, name).await?;
+        // A failed/partial restore must never leave an old cursor usable.
+        session.cursor = None;
+        session.cursor = self.inner.restore_with_cursor(name, path).await?;
+        // A valid tail published during restore is safe to replay; a fork that
+        // restore stopped at still fails against the retained anchor (F5).
+        session
+            .replay(&self.inner, name, path, self.allow_fork_bridge)
+            .await
+    }
 
-        // Apply any remaining incrementals after the restored seq. With
-        // fork-bridging acknowledged this can cross a chain break by page
-        // content; otherwise the guard above already failed closed.
-        let final_seq = walrust::sync::pull_incremental(
-            self.inner.storage().as_ref(),
-            self.inner.prefix(),
-            name,
-            path,
-            seq,
-        )
-        .await?;
-
-        if final_seq > seq {
-            tracing::info!(
-                "SqliteReplicator::pull('{}') bridged chain gap: restore seq {} -> pull seq {}",
-                name,
-                seq,
-                final_seq,
-            );
+    async fn pull_incremental(&self, name: &str, path: &Path) -> Result<u64> {
+        let mut sessions = self.replay.0.lock().await;
+        let session = sessions
+            .entry((name.to_string(), path.to_path_buf()))
+            .or_default();
+        if session.cursor.is_none() {
+            // The follower may have joined before the first snapshot existed.
+            // Only an actual restore may establish its starting cursor.
+            session.gate_epoch(&self.inner, name).await?;
+            session.cursor = self.inner.restore_with_cursor(name, path).await?;
         }
-        Ok(())
+        session
+            .replay(&self.inner, name, path, self.allow_fork_bridge)
+            .await
     }
 
     async fn remove(&self, name: &str) -> Result<()> {
@@ -337,48 +371,40 @@ impl Replicator for ExternalSnapshotSqliteReplicator {
     }
 
     async fn add_continuing(&self, name: &str, path: &Path) -> Result<()> {
+        let _sessions = self.replay.0.lock().await;
         self.inner.add_without_snapshot(name, path).await
     }
 
     async fn pull(&self, name: &str, path: &Path) -> Result<()> {
-        let restored_seq = walrust::restore_with_snapshot_source(
-            self.inner.storage().as_ref(),
-            self.inner.prefix(),
-            name,
-            path,
-            self.snapshot_source.as_ref(),
-        )
-        .await?;
+        self.pull_with_position(name, path).await.map(|_| ())
+    }
 
-        // F5: hard-error on a forked tail restore refused, unless fork-bridging
-        // is explicitly acknowledged.
-        ensure_no_fork_after_restore(
-            self.inner.storage().as_ref(),
-            self.inner.prefix(),
-            name,
-            restored_seq,
-            self.allow_fork_bridge,
-        )
-        .await?;
+    async fn pull_with_position(&self, name: &str, path: &Path) -> Result<u64> {
+        let mut sessions = self.replay.0.lock().await;
+        let session = sessions
+            .entry((name.to_string(), path.to_path_buf()))
+            .or_default();
+        session.gate_epoch(&self.inner, name).await?;
+        session.cursor = None;
+        let seq = self.snapshot_source.materialize(path).await?;
+        session.cursor = Some(walrust::ReplayCursor {
+            seq,
+            checksum: walrust::ltx::compute_checksum_from_file(path)?,
+            generation: walrust::ReplayGeneration::ExternalBase,
+        });
+        session
+            .replay(&self.inner, name, path, self.allow_fork_bridge)
+            .await
+    }
 
-        let final_seq = walrust::sync::pull_incremental(
-            self.inner.storage().as_ref(),
-            self.inner.prefix(),
-            name,
-            path,
-            restored_seq,
-        )
-        .await?;
-
-        if final_seq > restored_seq {
-            tracing::info!(
-                "ExternalSnapshotSqliteReplicator::pull('{}') advanced after restore: {} -> {}",
-                name,
-                restored_seq,
-                final_seq,
-            );
-        }
-        Ok(())
+    async fn pull_incremental(&self, name: &str, path: &Path) -> Result<u64> {
+        let mut sessions = self.replay.0.lock().await;
+        let session = sessions
+            .get_mut(&(name.to_string(), path.to_path_buf()))
+            .ok_or_else(|| anyhow::anyhow!("no restored replay cursor for '{name}'"))?;
+        session
+            .replay(&self.inner, name, path, self.allow_fork_bridge)
+            .await
     }
 
     async fn remove(&self, name: &str) -> Result<()> {

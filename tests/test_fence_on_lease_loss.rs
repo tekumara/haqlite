@@ -43,7 +43,7 @@ fn build_coordinator(
     };
 
     let replicator = Arc::new(SqliteReplicator::new(storage.clone(), "test/", repl_config));
-    let follower_behavior = Arc::new(SqliteFollowerBehavior::new(storage));
+    let follower_behavior = Arc::new(SqliteFollowerBehavior::new());
 
     Coordinator::new(replicator, None, None, follower_behavior, "test/", config)
 }
