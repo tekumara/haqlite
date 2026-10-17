@@ -7,6 +7,8 @@
 //! # #[tokio::main]
 //! # async fn main() -> anyhow::Result<()> {
 //! use haqlite::{HaQLite, SqlValue};
+//! # let my_lease_store = std::sync::Arc::new(haqlite::InMemoryLeaseStore::new());
+//! # let my_storage = std::sync::Arc::new(hadb_storage_local::LocalStorage::new("/tmp/haqlite-example"));
 //!
 //! let mut db = HaQLite::builder()
 //!     .lease_store(my_lease_store)
@@ -33,6 +35,7 @@ pub mod follower_behavior;
 pub mod forwarding;
 pub mod hrana;
 pub mod ops;
+mod replication_cursor;
 pub mod replicator;
 pub mod serve;
 

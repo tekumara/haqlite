@@ -1,8 +1,4 @@
-# See cinch-cloud/.cargo/config.toml for rationale. Shared target-dir and
-# sccache so haqlite dedupes with cinch-cloud and the rest of the sibling
-# repos. Keep in sync.
-
+# Keep builds local and portable. Developers can opt into a shared cache with
+# CARGO_TARGET_DIR and RUSTC_WRAPPER in their own environment.
 [build]
-target-dir = "../cinch-target"
-rustc-wrapper = "/opt/homebrew/opt/sccache/bin/sccache"
 incremental = true

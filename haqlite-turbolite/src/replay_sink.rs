@@ -48,12 +48,24 @@ impl PreparedPageReplay {
     }
 }
 
+/// The authority for the first delta: a published/materialized manifest base
+/// may legitimately re-anchor at a seq that also has an older changeset object.
+/// An already-applied delta must still chain from that exact object's checksum.
+#[derive(Clone, Copy)]
+pub(crate) enum ReplayStart {
+    ManifestBase(u64),
+    AppliedSequence(u64),
+}
+
 pub(crate) async fn prepare_page_replay(
     storage: &dyn StorageBackend,
     prefix: &str,
     db_name: &str,
-    current_seq: u64,
+    start: ReplayStart,
 ) -> Result<PreparedPageReplay> {
+    let current_seq = match start {
+        ReplayStart::ManifestBase(seq) | ReplayStart::AppliedSequence(seq) => seq,
+    };
     let files = cs_storage::discover_after(
         storage,
         prefix,
@@ -72,30 +84,34 @@ pub(crate) async fn prepare_page_replay(
         });
     }
     let mut expected_seq = current_seq + 1;
-    let previous_key = (current_seq > 0).then(|| {
-        cs_storage::format_key(
-            prefix,
-            db_name,
-            cs_storage::GENERATION_INCREMENTAL,
-            current_seq,
-            ChangesetKind::Physical,
-        )
-    });
+    let previous_key =
+        (current_seq > 0 && matches!(start, ReplayStart::AppliedSequence(_))).then(|| {
+            cs_storage::format_key(
+                prefix,
+                db_name,
+                cs_storage::GENERATION_INCREMENTAL,
+                current_seq,
+                ChangesetKind::Physical,
+            )
+        });
     let mut expected_prev_checksum: Option<u64> = match previous_key {
         Some(key) => match storage.get(&key).await? {
             Some(data) => Some(
-                physical::decode(&data)
+                walrust::ltx::decode_sqlite_changeset(&data)
                     .map_err(|e| anyhow!("failed to decode previous changeset at {}: {}", key, e))?
                     .checksum,
             ),
-            None => None,
+            None => {
+                return Err(anyhow!(
+                    "applied changeset cursor missing at {key}; cannot prove chain"
+                ))
+            }
         },
         None => None,
     };
-    // Only legitimate when there is no prior changeset object: the first delta
-    // then chains from the materialized base file, validated separately via
-    // validate_base_checksum. When a prior changeset exists this stays false
-    // and the in-loop checksum chain is the sole authority.
+    // A manifest base deliberately re-anchors the stream, even if an older
+    // delta exists at that seq. Its exact materialized file hash is validated
+    // separately. An applied-delta cursor never falls back to that file hash.
     let base_file_checksum_required = expected_prev_checksum.is_none();
     // Post-commit page count per changeset, mirroring cursor-chain's
     // end_page_count: the LAST applied changeset's value is the target
@@ -112,7 +128,7 @@ pub(crate) async fn prepare_page_replay(
             .get(&file.key)
             .await?
             .ok_or_else(|| anyhow!("changeset disappeared while preparing replay: {}", file.key))?;
-        let changeset = physical::decode(&data)
+        let changeset = walrust::ltx::decode_sqlite_changeset(&data)
             .map_err(|e| anyhow!("failed to decode changeset at {}: {}", file.key, e))?;
         if file.seq != expected_seq {
             return Err(anyhow!(
@@ -152,6 +168,9 @@ pub(crate) async fn prepare_page_replay(
         let mut header_page_count = None;
         let mut max_page_id = 0u64;
         for page in &changeset.pages {
+            if page.data.is_empty() {
+                continue; // Validated end-page-count marker, not a SQLite page.
+            }
             let pid = page.page_id.to_u64();
             max_page_id = max_page_id.max(pid);
             if pid == 1 {
@@ -160,13 +179,14 @@ pub(crate) async fn prepare_page_replay(
                 }
             }
         }
-        running_page_count = match header_page_count {
-            // Page 1 present: SQLite header is authoritative (handles shrink).
-            Some(pc) => Some(pc),
-            // No page 1: keep prior count but never below the highest page
-            // written this changeset (an append must still grow the file).
-            None => Some(running_page_count.unwrap_or(0).max(max_page_id)),
-        };
+        running_page_count =
+            match walrust::ltx::changeset_end_page_count(&changeset)?.or(header_page_count) {
+                // Page 1 present: SQLite header is authoritative (handles shrink).
+                Some(pc) => Some(pc),
+                // No page 1: keep prior count but never below the highest page
+                // written this changeset (an append must still grow the file).
+                None => Some(running_page_count.unwrap_or(0).max(max_page_id)),
+            };
         // Last applied changeset wins, mirroring cursor-chain end_page_count.
         target_page_count = running_page_count;
         expected_prev_checksum = Some(changeset.checksum);
@@ -197,6 +217,9 @@ pub(crate) fn apply_prepared_page_replay(
         }
         for (seq, changeset) in prepared.changesets {
             for page in &changeset.pages {
+                if page.data.is_empty() {
+                    continue; // Size marker has already set target_page_count.
+                }
                 let sqlite_page_id: u32 = page
                     .page_id
                     .to_u64()
@@ -284,14 +307,15 @@ pub(crate) async fn prepare_cursor_replay(
     let mut new_last_applied_seq = cursor.last_applied_seq;
 
     for d in &verified.verified {
-        let changeset = physical::decode(&d.payload.ltx_payload).map_err(|e| {
-            anyhow!(
-                "failed to decode LTX payload in delta seq {} for '{}': {}",
-                d.seq,
-                db_name,
-                e
-            )
-        })?;
+        let changeset =
+            walrust::ltx::decode_sqlite_changeset(&d.payload.ltx_payload).map_err(|e| {
+                anyhow!(
+                    "failed to decode LTX payload in delta seq {} for '{}': {}",
+                    d.seq,
+                    db_name,
+                    e
+                )
+            })?;
         if changeset.header.seq != d.seq {
             return Err(anyhow!(
                 "delta seq {} carries an LTX changeset with header seq {} for '{}'",
@@ -302,6 +326,16 @@ pub(crate) async fn prepare_cursor_replay(
         }
         // end_page_count of the last applied delta drives the final
         // file page count (shrink/grow/VACUUM/truncate aware).
+        if let Some(encoded_count) = walrust::ltx::changeset_end_page_count(&changeset)? {
+            if encoded_count != d.payload.end_page_count {
+                return Err(anyhow!(
+                    "delta seq {} end-page-count marker {} disagrees with envelope {}",
+                    d.seq,
+                    encoded_count,
+                    d.payload.end_page_count
+                ));
+            }
+        }
         target_page_count = Some(d.payload.end_page_count);
         new_anchor = d.envelope_checksum.to_vec();
         new_last_applied_seq = d.seq;
@@ -506,7 +540,7 @@ mod tests {
     }
 
     fn page(page_id: u32, fill: u8) -> Vec<u8> {
-        let mut data = vec![fill; 128];
+        let mut data = vec![fill; 512];
         if page_id == 1 {
             data[..16].copy_from_slice(b"SQLite format 3\0");
             data[28..32].copy_from_slice(&7u32.to_be_bytes());
@@ -519,7 +553,7 @@ mod tests {
             seq,
             prev_checksum,
             PageIdSize::U32,
-            128,
+            512,
             vec![PageEntry {
                 page_id: PageId::U32(page_id),
                 data: page(page_id, fill),
@@ -566,6 +600,100 @@ mod tests {
             .expect("publish cursor-chain delta");
         let envelope = external_delta::encode(&payload).expect("encode");
         external_delta::checksum(&envelope)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn upstream_size_marker_truncates_real_sqlite_and_preserves_cursor_authority(
+    ) -> Result<()> {
+        use turbolite::tiered::{TurboliteConfig, TurboliteVfs};
+        let tmp = tempfile::tempdir()?;
+        let source = tmp.path().join("source.db");
+        let conn = rusqlite::Connection::open(&source)?;
+        conn.execute_batch(
+            "PRAGMA page_size=4096; CREATE TABLE t (value BLOB);
+            WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<20)
+            INSERT INTO t SELECT zeroblob(4096) FROM n;",
+        )?;
+        drop(conn);
+        let original_size = std::fs::metadata(&source)?.len();
+        let base_checksum = walrust::ltx::compute_checksum_from_file(&source)?;
+        let vfs = TurboliteVfs::with_backend(
+            TurboliteConfig {
+                cache_dir: tmp.path().join("cache"),
+                ..Default::default()
+            },
+            Arc::new(crate::TurboliteStorage(Arc::new(
+                hadb_storage_local::LocalStorage::new(tmp.path().join("groups")),
+            ))),
+            tokio::runtime::Handle::current(),
+        )?;
+        vfs.import_sqlite_file(&source)?;
+        let storage = hadb_storage_local::LocalStorage::new(tmp.path().join("objects"));
+        let old = changeset(3, 0, 1, 0x11);
+        cs_storage::upload_physical(&storage, "prefix/", "db", &old).await?;
+
+        let conn = rusqlite::Connection::open(&source)?;
+        conn.execute_batch("DELETE FROM t; VACUUM;")?;
+        drop(conn);
+        let bytes = std::fs::read(&source)?;
+        assert!((bytes.len() as u64) < original_size);
+        let end_pages = (bytes.len() / 4096) as u64;
+        let pages: Vec<_> = bytes
+            .chunks_exact(4096)
+            .enumerate()
+            .map(|(i, data)| (i as u32 + 1, data.to_vec()))
+            .collect();
+        let (delta, _) = walrust::ltx::encode_wal_changes_with_end_page_count(
+            &pages,
+            4096,
+            4,
+            base_checksum,
+            end_pages,
+        )?;
+        let key = cs_storage::format_key("prefix/", "db", 0, 4, ChangesetKind::Physical);
+        storage.put(&key, &delta).await?;
+
+        // A published base can re-anchor over an older same-sequence delta,
+        // but an applied-delta cursor must reject that different predecessor.
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(3))
+            .await
+            .expect_err("applied cursors must not fall back to the base hash");
+        assert!(err.to_string().contains("checksum chain break"));
+        let prior_key = cs_storage::format_key("prefix/", "db", 0, 3, ChangesetKind::Physical);
+        storage.delete(&prior_key).await?;
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(3))
+            .await
+            .expect_err("missing applied cursors must fail closed");
+        assert!(err.to_string().contains("applied changeset cursor missing"));
+
+        cs_storage::upload_physical(&storage, "prefix/", "db", &old).await?;
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::ManifestBase(3)).await?;
+        prepared.validate_base_checksum(base_checksum)?;
+        assert!(prepared
+            .validate_base_checksum(base_checksum.wrapping_add(1))
+            .is_err());
+        let gate = vfs.replay_gate();
+        {
+            let _write = gate.write();
+            let mut sink =
+                HaqliteTurboliteReplaySink::new_under_external_write(vfs.begin_replay_after(3)?);
+            assert_eq!(apply_prepared_page_replay(&mut sink, prepared)?, 4);
+        }
+        assert_eq!(
+            std::fs::metadata(vfs.cache_file_path())?.len(),
+            bytes.len() as u64
+        );
+        let conn = rusqlite::Connection::open(vfs.cache_file_path())?;
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get::<_, i64>(0))?,
+            0
+        );
+        assert_eq!(
+            conn.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))?,
+            "ok"
+        );
+        Ok(())
     }
 
     #[tokio::test]
@@ -672,7 +800,7 @@ mod tests {
         let c2 = changeset(2, 0, 1, 0x22);
         put_changeset(&storage, 2, &c2);
 
-        let err = prepare_page_replay(&storage, "prefix/", "db", 0)
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
             .await
             .expect_err("missing seq 1 must fail closed");
 
@@ -687,7 +815,7 @@ mod tests {
         let c2 = changeset(2, 0, 1, 0x22);
         put_changeset(&storage, 1, &c2);
 
-        let err = prepare_page_replay(&storage, "prefix/", "db", 0)
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
             .await
             .expect_err("key/header sequence mismatch must fail closed");
 
@@ -702,7 +830,7 @@ mod tests {
         put_changeset(&storage, 1, &c1);
         put_changeset(&storage, 2, &c2);
 
-        let err = prepare_page_replay(&storage, "prefix/", "db", 0)
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
             .await
             .expect_err("wrong-chain seq 2 must fail closed");
 
@@ -715,9 +843,10 @@ mod tests {
         let c1 = changeset(1, 0xAA55, 1, 0x11);
         put_changeset(&storage, 1, &c1);
 
-        let prepared = prepare_page_replay(&storage, "prefix/", "db", 0)
-            .await
-            .expect("valid replay prepares");
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
+                .await
+                .expect("valid replay prepares");
 
         assert_eq!(prepared.target_page_count, Some(7));
         prepared
@@ -733,14 +862,14 @@ mod tests {
 
     /// Build a page-1 page whose SQLite header records `page_count`.
     fn page1_with_count(page_count: u32, fill: u8) -> Vec<u8> {
-        let mut data = vec![fill; 128];
+        let mut data = vec![fill; 512];
         data[..16].copy_from_slice(b"SQLite format 3\0");
         data[28..32].copy_from_slice(&page_count.to_be_bytes());
         data
     }
 
     fn changeset_pages(seq: u64, prev: u64, pages: Vec<PageEntry>) -> PhysicalChangeset {
-        PhysicalChangeset::new(seq, prev, PageIdSize::U32, 128, pages)
+        PhysicalChangeset::new(seq, prev, PageIdSize::U32, 512, pages)
     }
 
     /// F6: a shrink that writes page 1 with a smaller header page count must
@@ -770,9 +899,10 @@ mod tests {
         put_changeset(&storage, 1, &c1);
         put_changeset(&storage, 2, &c2);
 
-        let prepared = prepare_page_replay(&storage, "prefix/", "db", 0)
-            .await
-            .expect("valid replay prepares");
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
+                .await
+                .expect("valid replay prepares");
         assert_eq!(
             prepared.target_page_count,
             Some(100),
@@ -808,9 +938,10 @@ mod tests {
         put_changeset(&storage, 1, &c1);
         put_changeset(&storage, 2, &c2);
 
-        let prepared = prepare_page_replay(&storage, "prefix/", "db", 0)
-            .await
-            .expect("valid replay prepares");
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
+                .await
+                .expect("valid replay prepares");
         assert_eq!(
             prepared.target_page_count,
             Some(8),
@@ -826,9 +957,10 @@ mod tests {
         put_changeset(&storage, 3, &c3);
         put_changeset(&storage, 4, &c4);
 
-        let prepared = prepare_page_replay(&storage, "prefix/", "db", 3)
-            .await
-            .expect("valid replay prepares from previous changeset");
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(3))
+                .await
+                .expect("valid replay prepares from previous changeset");
 
         prepared
             .validate_base_checksum(0x55AA)
@@ -851,7 +983,7 @@ mod tests {
         put_changeset(&storage, 3, &c3);
         put_changeset(&storage, 4, &c4);
 
-        let err = prepare_page_replay(&storage, "prefix/", "db", 3)
+        let err = prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(3))
             .await
             .expect_err("first-delta break against an existing prior changeset must fail closed");
 
@@ -869,9 +1001,10 @@ mod tests {
         let c1 = changeset(1, base_checksum, 1, 0x11);
         put_changeset(&storage, 1, &c1);
 
-        let prepared = prepare_page_replay(&storage, "prefix/", "db", 0)
-            .await
-            .expect("first delta with no prior changeset chains from the materialized base");
+        let prepared =
+            prepare_page_replay(&storage, "prefix/", "db", ReplayStart::AppliedSequence(0))
+                .await
+                .expect("first delta with no prior changeset chains from the materialized base");
 
         prepared
             .validate_base_checksum(base_checksum)

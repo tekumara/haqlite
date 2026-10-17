@@ -596,7 +596,9 @@ impl FailingDownloadStorage {
 #[async_trait]
 impl hadb_storage::StorageBackend for FailingDownloadStorage {
     async fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        if key.contains("/0001/") {
+        if key.ends_with("/state.json") {
+            Ok(None)
+        } else if key.contains("/0001/") {
             Ok(Some(self.snapshot_data.clone()))
         } else {
             Err(anyhow::anyhow!("simulated download failure"))

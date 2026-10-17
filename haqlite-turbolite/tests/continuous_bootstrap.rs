@@ -164,8 +164,12 @@ fn make_remote_vfs_with_config(
     config: TurboliteConfig,
 ) -> (SharedTurboliteVfs, String) {
     let config = TurboliteConfig { ..config };
-    let vfs = TurboliteVfs::with_backend(config, storage, tokio::runtime::Handle::current())
-        .expect("create VFS");
+    let vfs = TurboliteVfs::with_backend(
+        config,
+        Arc::new(haqlite_turbolite::TurboliteStorage(storage)),
+        tokio::runtime::Handle::current(),
+    )
+    .expect("create VFS");
     let shared_vfs = SharedTurboliteVfs::new(vfs);
     turbolite::tiered::register_shared(&vfs_name, shared_vfs.clone()).expect("register VFS");
     (shared_vfs, vfs_name)
@@ -642,11 +646,8 @@ async fn continuous_first_write_publishes_manifest_that_only_references_existing
             .await
             .expect("get first delta")
             .expect("first delta object");
-        let decoded_delta = walrust::ltx::decode_to_db(
-            &first_delta,
-            &tmp.path().join("first_write_delta_decode.db"),
-        )
-        .expect("decode first delta");
+        let decoded_delta =
+            walrust::ltx::decode_sqlite_changeset(&first_delta).expect("decode first delta");
         assert_eq!(
             decoded_delta.header.prev_checksum, base_checksum,
             "first WAL delta after manifest base must chain from the published base checksum; key={first_delta_key}"
@@ -759,11 +760,8 @@ async fn continuous_default_vfs_first_delta_chains_from_manifest_base() {
             .await
             .expect("get first delta")
             .expect("first delta object");
-        let decoded_delta = walrust::ltx::decode_to_db(
-            &first_delta,
-            &tmp.path().join("default_first_write_delta_decode.db"),
-        )
-        .expect("decode first delta");
+        let decoded_delta =
+            walrust::ltx::decode_sqlite_changeset(&first_delta).expect("decode first delta");
         assert_eq!(
             decoded_delta.header.prev_checksum, base_checksum,
             "first WAL delta after default manifest base must chain from published base checksum; key={first_delta_key}"
@@ -1003,11 +1001,8 @@ async fn continuous_stale_walrust_state_does_not_poison_first_delta_chain() {
             .await
             .expect("get first delta")
             .expect("first delta object");
-        let decoded_delta = walrust::ltx::decode_to_db(
-            &first_delta,
-            &tmp.path().join("stale_state_delta_decode.db"),
-        )
-        .expect("decode first delta");
+        let decoded_delta =
+            walrust::ltx::decode_sqlite_changeset(&first_delta).expect("decode first delta");
         assert_eq!(
             decoded_delta.header.seq,
             base.change_counter + 1,
@@ -1128,11 +1123,8 @@ async fn continuous_object_store_first_delta_chains_from_manifest_base() {
             .await
             .expect("get first delta")
             .expect("first delta object");
-        let decoded_delta = walrust::ltx::decode_to_db(
-            &first_delta,
-            &tmp.path().join("object_first_write_delta_decode.db"),
-        )
-        .expect("decode first delta");
+        let decoded_delta =
+            walrust::ltx::decode_sqlite_changeset(&first_delta).expect("decode first delta");
         assert_eq!(
             decoded_delta.header.prev_checksum, base_checksum,
             "first object-store WAL delta after manifest base must chain from published base checksum; key={first_delta_key}"

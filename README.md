@@ -8,6 +8,10 @@ Part of the [hadb](https://github.com/russellromney/hadb) ecosystem for making a
 
 `haqlite` is the base HA SQLite library with WAL replication. For tiered HA SQLite with page-level S3 tiering, add the optional [`haqlite-turbolite`](haqlite-turbolite/README.md) sibling crate.
 
+## Dependency upgrade status
+
+The upstream-main dependency upgrade is not fully validated. Base-library checks pass, but tiered replication still has failing safety tests and deadlocks. See the [dependency upgrade report](docs/dependency-upgrade.md) for exact revisions, compatibility adapters, build prerequisites and test results.
+
 ## Quick start
 
 ```rust

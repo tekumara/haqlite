@@ -29,7 +29,9 @@ fn build_coordinator(
     renew_interval: Duration,
     follower_poll: Duration,
 ) -> Arc<Coordinator> {
+    let (fence, fence_writer) = hadb_lease::AtomicFence::new();
     let config = CoordinatorConfig {
+        fence_writer: Some(Arc::new(fence_writer)),
         lease: Some(LeaseConfig {
             max_consecutive_renewal_errors: 1, // fence fast on renewal failure
             ..LeaseConfig::new(lease_store, instance_id.to_string(), address.to_string())
@@ -42,7 +44,8 @@ fn build_coordinator(
         ..Default::default()
     };
 
-    let replicator = Arc::new(SqliteReplicator::new(storage.clone(), "test/", repl_config));
+    let replicator =
+        Arc::new(SqliteReplicator::new(storage.clone(), "test/", repl_config).with_fence(fence));
     let follower_behavior = Arc::new(SqliteFollowerBehavior::new(storage));
 
     Coordinator::new(replicator, None, None, follower_behavior, "test/", config)

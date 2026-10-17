@@ -23,10 +23,8 @@ pub struct SqliteReplicator {
     /// Used for SingleWriter+Synchronous where remote storage handles durability
     /// and the local SQLite file may be empty (data is in S3 page groups).
     skip_snapshot_on_add: bool,
-    /// When true, `pull()` is allowed to bridge a chain break by applying
-    /// forked changesets by page content (the old behavior). Default false:
-    /// a chain break that `restore()` refused is a hard error rather than a
-    /// silent fork merge (F5). Only enable with an explicit fork-ack policy.
+    /// Legacy acknowledgement of a leftover tail (F5). Current walrust still
+    /// rejects sequence/checksum breaks; this never disables native checks.
     allow_fork_bridge: bool,
     /// Reader side of the lease fence. When present, the leader stamps its
     /// current lease epoch into a per-database `_epoch` marker next to the
@@ -35,16 +33,12 @@ pub struct SqliteReplicator {
     /// in single-node / no-lease deployments: the marker is never written and
     /// the follower never gates, preserving the legacy behavior.
     fence: Option<AtomicFence>,
+    retry_policy: walrust::RetryPolicy,
 }
 
-/// Guard against `pull_incremental` silently bridging a forked history (F5).
-///
-/// `restore()` applies every chain-valid contiguous incremental after the
-/// snapshot and stops at the first checksum-chain break. So any changeset
-/// object still present after `restored_seq` is one `restore()` deliberately
-/// refused — a fork from a prior lineage. `pull_incremental` would then apply
-/// it by raw page content, merging the fork. Unless fork-bridging is explicitly
-/// acknowledged, that is a hard error.
+/// Retain the explicit leftover-tail guard (F5). Current walrust also rejects
+/// forks during restore and preflights every incremental before writing pages.
+/// A legacy acknowledgement bypasses only this extra guard, never those checks.
 async fn ensure_no_fork_after_restore(
     storage: &dyn StorageBackend,
     prefix: &str,
@@ -55,10 +49,11 @@ async fn ensure_no_fork_after_restore(
     if allow_fork_bridge {
         return Ok(());
     }
+    let namespace = crate::replication_cursor::database_namespace(storage, prefix, name).await?;
     let leftover = walrust::hadb_changeset::storage::discover_after(
         storage,
         prefix,
-        name,
+        &namespace,
         restored_seq,
         walrust::hadb_changeset::storage::ChangesetKind::Physical,
     )
@@ -83,11 +78,68 @@ impl SqliteReplicator {
     /// `config` is the walrust replication configuration.
     pub fn new(storage: Arc<dyn StorageBackend>, prefix: &str, config: ReplicationConfig) -> Self {
         Self {
+            retry_policy: config.retry_policy.clone(),
             inner: walrust::Replicator::new(storage, prefix, config),
             skip_snapshot_on_add: false,
             allow_fork_bridge: false,
             fence: None,
         }
+    }
+
+    async fn resume_or_add(&self, name: &str, path: &Path) -> Result<()> {
+        // Saved WAL offsets belong to the old local files, not this restored
+        // database. Re-anchor under a held lease before registering a sender.
+        let namespace = crate::replication_cursor::database_namespace(
+            self.inner.storage().as_ref(),
+            self.inner.prefix(),
+            name,
+        )
+        .await?;
+        if walrust::hadb_changeset::storage::discover_latest_snapshot(
+            self.inner.storage().as_ref(),
+            self.inner.prefix(),
+            &namespace,
+            walrust::hadb_changeset::storage::ChangesetKind::Physical,
+        )
+        .await?
+        .is_none()
+        {
+            return self.inner.add(name, path).await;
+        }
+        let fence = self
+            .fence
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("resuming a restored leader requires a lease fence"))?;
+        let lease = ResumeLease {
+            fence,
+            floor: fence.current().ok_or_else(|| {
+                anyhow::anyhow!("cannot resume restored leader without an active lease")
+            })?,
+        };
+        // Check ownership before restore can replace local files as well as
+        // before publishing the new base.
+        lease.ensure_active()?;
+        let restored = walrust::sync::restore(
+            self.inner.storage().clone(),
+            self.inner.prefix(),
+            name,
+            path,
+            None,
+        )
+        .await?;
+        let mut state = walrust::SyncState::new(path.to_path_buf())?;
+        state.name = name.to_owned();
+        walrust::sync::resume_owned_after_restore(
+            self.inner.storage().as_ref(),
+            self.inner.prefix(),
+            &mut state,
+            &restored,
+            &lease,
+            &self.retry_policy,
+        )
+        .await?;
+        lease.ensure_active()?;
+        self.inner.add_without_snapshot(name, path).await
     }
 
     /// Attach the lease fence so each `sync()` stamps the current leader epoch
@@ -106,9 +158,8 @@ impl SqliteReplicator {
         self
     }
 
-    /// Allow `pull()` to bridge a chain break by applying forked changesets
-    /// by page content. Default is false (fork = hard error). Only enable
-    /// behind an explicit fork-acknowledgement policy (F5).
+    /// Acknowledge a leftover tail for the legacy extra guard (F5).
+    /// Native walrust sequence and checksum verification always remains on.
     pub fn with_allow_fork_bridge(mut self, allow: bool) -> Self {
         self.allow_fork_bridge = allow;
         self
@@ -164,6 +215,29 @@ impl SqliteReplicator {
     }
 }
 
+// The coordinator owns renewal and clears this fence on lease loss. Require
+// it throughout walrust's retryable resume; a cleared or regressed revision
+// must not publish a resumed stream. Renewals may advance the revision.
+struct ResumeLease<'a> {
+    fence: &'a AtomicFence,
+    floor: u64,
+}
+
+impl ResumeLease<'_> {
+    fn ensure_active(&self) -> Result<()> {
+        match self.fence.current() {
+            Some(rev) if rev >= self.floor => Ok(()),
+            _ => anyhow::bail!("lease lost while resuming restored leader"),
+        }
+    }
+}
+
+impl walrust::OwnedResumeLease for ResumeLease<'_> {
+    fn ensure_held(&self) -> Result<()> {
+        self.ensure_active()
+    }
+}
+
 /// SQLite replicator for external-base-state mode.
 ///
 /// Use this when another layer owns checkpointed base state and walrust should
@@ -201,9 +275,8 @@ impl ExternalSnapshotSqliteReplicator {
         })
     }
 
-    /// Allow `pull()` to bridge a chain break by applying forked changesets
-    /// by page content. Default is false (fork = hard error). Only enable
-    /// behind an explicit fork-acknowledgement policy (F5).
+    /// Acknowledge a leftover tail for the legacy extra guard (F5).
+    /// Native walrust sequence and checksum verification always remains on.
     pub fn with_allow_fork_bridge(mut self, allow: bool) -> Self {
         self.allow_fork_bridge = allow;
         self
@@ -247,12 +320,12 @@ impl Replicator for SqliteReplicator {
         if self.skip_snapshot_on_add {
             self.inner.add_without_snapshot(name, path).await
         } else {
-            self.inner.add(name, path).await
+            self.resume_or_add(name, path).await
         }
     }
 
     async fn add_continuing(&self, name: &str, path: &Path) -> Result<()> {
-        self.inner.add_without_snapshot(name, path).await
+        self.resume_or_add(name, path).await
     }
 
     async fn pull(&self, name: &str, path: &Path) -> Result<()> {
@@ -273,17 +346,28 @@ impl Replicator for SqliteReplicator {
         )
         .await?;
 
-        // Apply any remaining incrementals after the restored seq. With
-        // fork-bridging acknowledged this can cross a chain break by page
-        // content; otherwise the guard above already failed closed.
+        if restored_seq.is_none() {
+            return Ok(());
+        }
+
+        // Apply any newly published incrementals with native sequence and
+        // checksum verification, even when the legacy guard was acknowledged.
         let final_seq = walrust::sync::pull_incremental(
             self.inner.storage().as_ref(),
             self.inner.prefix(),
             name,
             path,
-            seq,
+            crate::replication_cursor::cursor_at(
+                self.inner.storage().as_ref(),
+                self.inner.prefix(),
+                name,
+                path,
+                seq,
+            )
+            .await?,
         )
-        .await?;
+        .await?
+        .seq;
 
         if final_seq > seq {
             tracing::info!(
@@ -297,8 +381,7 @@ impl Replicator for SqliteReplicator {
     }
 
     async fn remove(&self, name: &str) -> Result<()> {
-        self.inner.remove(name).await;
-        Ok(())
+        self.inner.remove(name).await
     }
 
     async fn sync(&self, name: &str) -> Result<()> {
@@ -366,9 +449,17 @@ impl Replicator for ExternalSnapshotSqliteReplicator {
             self.inner.prefix(),
             name,
             path,
-            restored_seq,
+            crate::replication_cursor::cursor_at(
+                self.inner.storage().as_ref(),
+                self.inner.prefix(),
+                name,
+                path,
+                restored_seq,
+            )
+            .await?,
         )
-        .await?;
+        .await?
+        .seq;
 
         if final_seq > restored_seq {
             tracing::info!(
@@ -382,8 +473,7 @@ impl Replicator for ExternalSnapshotSqliteReplicator {
     }
 
     async fn remove(&self, name: &str) -> Result<()> {
-        self.inner.remove(name).await;
-        Ok(())
+        self.inner.remove(name).await
     }
 
     async fn sync(&self, name: &str) -> Result<()> {

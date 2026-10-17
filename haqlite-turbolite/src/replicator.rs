@@ -13,8 +13,8 @@ use turbolite::tiered::SharedTurboliteVfs;
 
 use crate::cursor_chain::FollowerCursor;
 use crate::replay_sink::{
-    apply_prepared_page_replay, prepare_page_replay, prepare_cursor_replay,
-    HaqliteTurboliteReplaySink,
+    apply_prepared_page_replay, prepare_cursor_replay, prepare_page_replay,
+    HaqliteTurboliteReplaySink, ReplayStart,
 };
 
 fn manifest_key(prefix: &str, db_name: &str) -> String {
@@ -49,8 +49,11 @@ pub fn seed_local_sqlite_for_import(path: &Path) -> std::io::Result<()> {
     }
     let temp_path = path.with_extension(format!("seed-{}.tmp", uuid::Uuid::new_v4()));
     let conn = rusqlite::Connection::open(&temp_path).map_err(io_err)?;
-    conn.execute_batch("PRAGMA user_version = 1; PRAGMA user_version = 0;")
-        .map_err(io_err)?;
+    // Continuous replication validates WAL mode even before the first write.
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL; PRAGMA user_version = 1; PRAGMA user_version = 0;",
+    )
+    .map_err(io_err)?;
     drop(conn);
     std::fs::rename(temp_path, path)?;
     Ok(())
@@ -881,7 +884,9 @@ impl TurboliteWalReplicator {
                     base_object_checksum: new_anchor,
                     epoch: working_epoch,
                 })
-                .map_err(|e| anyhow!("turbolite replay cursor update_replay_cursor failed: {}", e))?;
+                .map_err(|e| {
+                    anyhow!("turbolite replay cursor update_replay_cursor failed: {}", e)
+                })?;
                 replay_base_pending_publish.store(true, Ordering::Release);
                 replay_base_seq.fetch_max(new_last_applied_seq, Ordering::AcqRel);
             }
@@ -964,7 +969,7 @@ impl TurboliteWalReplicator {
                 self.walrust_storage.as_ref(),
                 &self.walrust_prefix,
                 name,
-                walrust_seq,
+                ReplayStart::ManifestBase(walrust_seq),
             )
             .await?;
 

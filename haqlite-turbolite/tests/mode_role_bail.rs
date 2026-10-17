@@ -54,8 +54,12 @@ fn remote_vfs(
         },
         ..Default::default()
     };
-    let vfs = TurboliteVfs::with_backend(cfg, storage, tokio::runtime::Handle::current())
-        .expect("create remote VFS");
+    let vfs = TurboliteVfs::with_backend(
+        cfg,
+        Arc::new(haqlite_turbolite::TurboliteStorage(storage)),
+        tokio::runtime::Handle::current(),
+    )
+    .expect("create remote VFS");
     let shared = SharedTurboliteVfs::new(vfs);
     let name = format!("kosice_remote_{}", n);
     turbolite::tiered::register_shared(&name, shared.clone()).expect("register");

@@ -801,8 +801,12 @@ fn make_latency_vfs(
         },
         ..Default::default()
     };
-    let vfs = TurboliteVfs::with_backend(config, storage, tokio::runtime::Handle::current())
-        .context("create latency Turbolite VFS")?;
+    let vfs = TurboliteVfs::with_backend(
+        config,
+        Arc::new(haqlite_turbolite::TurboliteStorage(storage)),
+        tokio::runtime::Handle::current(),
+    )
+    .context("create latency Turbolite VFS")?;
     let shared_vfs = SharedTurboliteVfs::new(vfs);
     let vfs_name = format!(
         "haqlite_turbolite_latency_{}",
@@ -1149,7 +1153,7 @@ async fn run_size(size: usize, cli: &Cli) -> Result<()> {
     std::fs::create_dir_all(&cache_dir)?;
 
     let s3 = build_s3_backend(&prefix).await;
-    let manifest = turbolite::tiered::get_manifest(s3.as_ref(), &tokio::runtime::Handle::current())
+    let manifest = turbolite::tiered::get_manifest(&haqlite_turbolite::TurboliteStorage(s3.clone()), &tokio::runtime::Handle::current())
         .context("fetch Turbolite benchmark manifest")?
         .ok_or_else(|| {
             anyhow!(
@@ -1191,7 +1195,9 @@ async fn run_size(size: usize, cli: &Cli) -> Result<()> {
 
     let vfs = TurboliteVfs::with_backend(
         config,
-        s3.clone() as Arc<dyn hadb_storage::StorageBackend>,
+        Arc::new(haqlite_turbolite::TurboliteStorage(
+            s3.clone() as Arc<dyn hadb_storage::StorageBackend>
+        )),
         tokio::runtime::Handle::current(),
     )
     .context("create Turbolite VFS")?;

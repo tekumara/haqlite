@@ -31,7 +31,9 @@ fn build_coordinator(
     instance_id: &str,
     address: &str,
 ) -> Arc<Coordinator> {
+    let (fence, fence_writer) = hadb_lease::AtomicFence::new();
     let config = CoordinatorConfig {
+        fence_writer: Some(Arc::new(fence_writer)),
         lease: Some(LeaseConfig::new(
             lease_store,
             instance_id.to_string(),
@@ -45,11 +47,10 @@ fn build_coordinator(
         ..Default::default()
     };
 
-    let replicator = Arc::new(SqliteReplicator::new(
-        walrust_storage.clone(),
-        "test/",
-        replication_config,
-    ));
+    let replicator = Arc::new(
+        SqliteReplicator::new(walrust_storage.clone(), "test/", replication_config)
+            .with_fence(fence),
+    );
     let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
 
     Coordinator::new(

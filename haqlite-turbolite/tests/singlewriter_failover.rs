@@ -65,8 +65,12 @@ fn make_remote_vfs(
         },
         ..Default::default()
     };
-    let vfs = TurboliteVfs::with_backend(config, storage, tokio::runtime::Handle::current())
-        .expect("create remote turbolite VFS");
+    let vfs = TurboliteVfs::with_backend(
+        config,
+        Arc::new(haqlite_turbolite::TurboliteStorage(storage)),
+        tokio::runtime::Handle::current(),
+    )
+    .expect("create remote turbolite VFS");
     let shared_vfs = SharedTurboliteVfs::new(vfs);
     turbolite::tiered::register_shared(&vfs_name, shared_vfs.clone()).expect("register VFS");
     (shared_vfs, vfs_name)
@@ -100,7 +104,8 @@ async fn build_singlewriter_node(
         .walrust_storage(walrust_storage)
         .turbolite_vfs(shared_vfs.clone(), &vfs_name)
         .instance_id(instance_id)
-        .lease_ttl(2)
+        // hadb 0.5 reserves a two-second skew margin on both sides.
+        .lease_ttl(2 * hadb_lease::LEASE_SKEW_MARGIN_SECS + 2)
         .lease_renew_interval(Duration::from_millis(250))
         .lease_follower_poll_interval(Duration::from_millis(100))
         .manifest_poll_interval(Duration::from_millis(50))
@@ -414,11 +419,20 @@ async fn diagnose_plain_walrust_replay(
         Err(e) => return format!("materialize_panic={e}"),
     }
 
-    let replay =
-        walrust::sync::pull_incremental(walrust_storage.as_ref(), &prefix, db_name, &db_path, seq)
-            .await;
+    let checksum = match walrust::ltx::compute_checksum_from_file(&db_path) {
+        Ok(checksum) => checksum,
+        Err(e) => return format!("base_checksum_error={e}"),
+    };
+    let replay = walrust::sync::pull_incremental(
+        walrust_storage.as_ref(),
+        &prefix,
+        db_name,
+        &db_path,
+        walrust::PullCursor { seq, checksum },
+    )
+    .await;
     let final_seq = match replay {
-        Ok(seq) => seq,
+        Ok(cursor) => cursor.seq,
         Err(e) => return format!("plain_pull_error={e}"),
     };
 
@@ -1084,7 +1098,11 @@ async fn run_canonical_user_contract_on_object_storage(
     let lease_store = Arc::new(InMemoryLeaseStore::new());
     let manifest_store_impl = Arc::new(MemManifestStore::new());
     let manifest_store: Arc<dyn ManifestStore> = manifest_store_impl.clone();
-    let lease_ttl_secs = if promote_before_third { 2 } else { 60 };
+    let lease_ttl_secs = if promote_before_third {
+        2 * hadb_lease::LEASE_SKEW_MARGIN_SECS + 2
+    } else {
+        60
+    };
 
     let mut leader = build_singlewriter_node_with_schema(
         leader_tmp.path(),

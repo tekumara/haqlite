@@ -53,7 +53,9 @@ pub async fn discover_ltx_files(
     db_name: &str,
 ) -> Result<Vec<DiscoveredLtx>> {
     let prefix = normalize_prefix(prefix);
-    let db_prefix = format!("{}{}/", prefix, db_name);
+    let namespace =
+        crate::replication_cursor::database_namespace(storage, &prefix, db_name).await?;
+    let db_prefix = format!("{}{}/", prefix, namespace);
     let keys = storage.list(&db_prefix, None).await?;
     let mut files = Vec::new();
     for key in &keys {
@@ -388,22 +390,55 @@ pub async fn snapshot_database(
     }
 
     let prefix = normalize_prefix(prefix);
-    let mut state = walrust::SyncState::new(db_path.to_path_buf())?;
-    let db_name = state.name.clone();
-
-    // Discover current seq from S3 so the snapshot gets the right sequence number
+    let db_name = db_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("invalid database filename: {}", db_path.display()))?
+        .to_owned();
     let files = discover_ltx_files(storage, &prefix, &db_name).await?;
-    state.current_seq = files.iter().map(|f| f.seq).max().unwrap_or(0);
+    let seq = files
+        .iter()
+        .map(|f| f.seq)
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("snapshot sequence exhausted"))?;
+    let namespace =
+        crate::replication_cursor::database_namespace(storage, &prefix, &db_name).await?;
 
-    // Initialize checksum from the database file
-    state.init_checksum()?;
-
-    walrust::sync::take_snapshot(storage, &prefix, &mut state).await?;
-
-    Ok(SnapshotResult {
-        seq: state.current_seq,
-        db_name,
+    // A one-shot CLI snapshot also supports DELETE-mode databases. Use SQLite's
+    // online backup to capture committed WAL pages without changing the source
+    // journal mode or reordering pages (VACUUM INTO would break later WAL replay).
+    let source = db_path.to_path_buf();
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        let tmp = tempfile::NamedTempFile::new()?;
+        let source = rusqlite::Connection::open_with_flags(
+            source,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        let mut target = rusqlite::Connection::open(tmp.path())?;
+        rusqlite::backup::Backup::new(&source, &mut target)?.run_to_completion(
+            128,
+            Duration::from_millis(10),
+            None,
+        )?;
+        let page_size: u32 = target.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+        drop(target);
+        walrust::ltx::encode_snapshot(tmp.path(), page_size, seq, 0)
     })
+    .await??;
+    let key = walrust::hadb_changeset::storage::format_key(
+        &prefix,
+        &namespace,
+        1,
+        seq,
+        walrust::hadb_changeset::storage::ChangesetKind::Physical,
+    );
+    let cas = storage.put_if_absent(&key, &bytes).await?;
+    if !cas.success && storage.get(&key).await?.as_deref() != Some(bytes.as_slice()) {
+        anyhow::bail!("snapshot conflict at {key}; refusing to overwrite another backup");
+    }
+    Ok(SnapshotResult { seq, db_name })
 }
 
 // ============================================================================
@@ -472,7 +507,7 @@ pub fn save_replica_state(local: &Path, current_seq: u64) -> Result<()> {
 /// Uses exponential backoff on consecutive failures with escalating log severity.
 /// Shuts down gracefully on SIGTERM/SIGINT.
 pub async fn replicate_database(
-    storage: &dyn StorageBackend,
+    storage: std::sync::Arc<dyn StorageBackend>,
     prefix: &str,
     db_name: &str,
     local: &Path,
@@ -483,7 +518,9 @@ pub async fn replicate_database(
 
     if current_seq == 0 || !local.exists() {
         tracing::info!("Bootstrapping replica from S3...");
-        current_seq = walrust::sync::restore(storage, &prefix, db_name, local, None).await?;
+        current_seq = walrust::sync::restore(storage.clone(), &prefix, db_name, local, None)
+            .await?
+            .seq();
         save_replica_state(local, current_seq)?;
     }
 
@@ -494,6 +531,14 @@ pub async fn replicate_database(
         current_seq
     );
 
+    let mut cursor = crate::replication_cursor::cursor_at(
+        storage.as_ref(),
+        &prefix,
+        db_name,
+        local,
+        current_seq,
+    )
+    .await?;
     let mut consecutive_failures: u32 = 0;
     let max_backoff = Duration::from_secs(60);
 
@@ -506,9 +551,11 @@ pub async fn replicate_database(
                 tracing::info!("Received shutdown signal, stopping replication.");
                 return Ok(());
             }
-            result = walrust::sync::pull_incremental(storage, &prefix, db_name, local, current_seq) => {
+            result = walrust::sync::pull_incremental(storage.as_ref(), &prefix, db_name, local, cursor) => {
                 match result {
-                    Ok(new_seq) => {
+                    Ok(next) => {
+                        cursor = next;
+                        let new_seq = next.seq;
                         if consecutive_failures > 0 {
                             tracing::info!("Replication recovered after {} failures", consecutive_failures);
                         }

@@ -13,8 +13,8 @@ use turbodb::ManifestStore;
 
 use crate::cursor_chain::FollowerCursor;
 use crate::replay_sink::{
-    apply_prepared_page_replay, prepare_page_replay, prepare_cursor_replay,
-    HaqliteTurboliteReplaySink,
+    apply_prepared_page_replay, prepare_cursor_replay, prepare_page_replay,
+    HaqliteTurboliteReplaySink, ReplayStart,
 };
 
 enum ApplyOutcome {
@@ -193,7 +193,12 @@ impl TurboliteFollowerBehavior {
                 .as_ref()
                 .ok_or_else(|| anyhow!("continuous follower '{}' missing walrust prefix", db_name))?
                 .clone();
-            Some(prepare_page_replay(storage.as_ref(), &prefix, db_name, replay_start_seq).await?)
+            let start = if materialize_base || replay_start_seq == decoded_manifest.change_counter {
+                ReplayStart::ManifestBase(replay_start_seq)
+            } else {
+                ReplayStart::AppliedSequence(replay_start_seq)
+            };
+            Some(prepare_page_replay(storage.as_ref(), &prefix, db_name, start).await?)
         } else {
             None
         };
@@ -300,12 +305,22 @@ impl TurboliteFollowerBehavior {
         let storage = self
             .walrust_storage
             .as_ref()
-            .ok_or_else(|| anyhow!("replay cursor follower '{}' missing walrust storage", db_name))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "replay cursor follower '{}' missing walrust storage",
+                    db_name
+                )
+            })?
             .clone();
         let prefix = self
             .walrust_prefix
             .as_ref()
-            .ok_or_else(|| anyhow!("replay cursor follower '{}' missing walrust prefix", db_name))?
+            .ok_or_else(|| {
+                anyhow!(
+                    "replay cursor follower '{}' missing walrust prefix",
+                    db_name
+                )
+            })?
             .clone();
 
         let base_cursor = decoded_manifest.cursor.clone();
@@ -387,10 +402,13 @@ impl TurboliteFollowerBehavior {
                             db_name_owned, e
                         )));
                     }
-                    Err(e) => return Err(anyhow!("turbolite replay cursor materialize failed: {}", e)),
+                    Err(e) => {
+                        return Err(anyhow!("turbolite replay cursor materialize failed: {}", e))
+                    }
                 }
-                vfs.set_manifest_bytes(&payload_owned)
-                    .map_err(|e| anyhow!("turbolite replay cursor set_manifest_bytes failed: {}", e))?;
+                vfs.set_manifest_bytes(&payload_owned).map_err(|e| {
+                    anyhow!("turbolite replay cursor set_manifest_bytes failed: {}", e)
+                })?;
                 let page_count = vfs.manifest().page_count;
                 vfs.sync_after_external_restore(page_count);
             }
@@ -413,7 +431,9 @@ impl TurboliteFollowerBehavior {
                     base_object_checksum: new_anchor,
                     epoch: working_epoch,
                 })
-                .map_err(|e| anyhow!("turbolite replay cursor update_replay_cursor failed: {}", e))?;
+                .map_err(|e| {
+                    anyhow!("turbolite replay cursor update_replay_cursor failed: {}", e)
+                })?;
 
                 if let Some(pending) = replay_base_pending_publish {
                     pending.store(true, Ordering::Release);

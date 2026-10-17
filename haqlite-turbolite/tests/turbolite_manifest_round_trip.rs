@@ -44,7 +44,12 @@ async fn turbolite_manifest_bytes_round_trip_preserves_epoch_and_change_counter(
     let rt_handle = tokio::runtime::Handle::current();
     let backend: Arc<dyn hadb_storage::StorageBackend> =
         Arc::new(hadb_storage_local::LocalStorage::new(&cache_dir));
-    let vfs = TurboliteVfs::with_backend(config, backend, rt_handle).expect("vfs");
+    let vfs = TurboliteVfs::with_backend(
+        config,
+        Arc::new(haqlite_turbolite::TurboliteStorage(backend)),
+        rt_handle,
+    )
+    .expect("vfs");
 
     // Seed the VFS with a manifest whose epoch + change_counter are
     // non-zero so we can tell whether they round-trip.
@@ -67,6 +72,7 @@ async fn turbolite_manifest_bytes_round_trip_preserves_epoch_and_change_counter(
         btree_groups: HashMap::new(),
         page_to_tree_name: HashMap::new(),
         tree_name_to_groups: HashMap::new(),
+        tree_name_to_root_page: HashMap::new(),
         group_to_tree_name: HashMap::new(),
         db_header: None,
         discontinuity_stamp: 9,
@@ -96,7 +102,12 @@ async fn turbolite_manifest_bytes_round_trip_preserves_epoch_and_change_counter(
     let rt_handle_b = tokio::runtime::Handle::current();
     let backend_b: Arc<dyn hadb_storage::StorageBackend> =
         Arc::new(hadb_storage_local::LocalStorage::new(&cache_b));
-    let vfs_b = TurboliteVfs::with_backend(config_b, backend_b, rt_handle_b).expect("vfs b");
+    let vfs_b = TurboliteVfs::with_backend(
+        config_b,
+        Arc::new(haqlite_turbolite::TurboliteStorage(backend_b)),
+        rt_handle_b,
+    )
+    .expect("vfs b");
     vfs_b
         .set_manifest_bytes(&bytes)
         .expect("set_manifest_bytes");

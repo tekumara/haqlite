@@ -772,7 +772,9 @@ impl Builder {
                     let auth_token = storage.auth_token_handle();
                     let storage: Arc<dyn hadb_storage::StorageBackend> = Arc::new(storage);
                     let vfs = turbolite::tiered::TurboliteVfs::with_backend(
-                        tl_config, storage, rt_handle,
+                        tl_config,
+                        Arc::new(crate::TurboliteStorage(storage)),
+                        rt_handle,
                     )
                     .map_err(|e| anyhow::anyhow!("turbolite VFS (HTTP): {e}"))?;
                     Ok((
@@ -800,7 +802,7 @@ impl Builder {
                 let registration = get_or_register_auto_vfs(key, || {
                     let vfs = turbolite::tiered::TurboliteVfs::with_backend(
                         tl_config,
-                        storage.clone(),
+                        Arc::new(crate::TurboliteStorage(storage.clone())),
                         rt_handle,
                     )
                     .map_err(|e| anyhow::anyhow!("turbolite VFS (caller-supplied): {e}"))?;
@@ -915,7 +917,7 @@ impl Builder {
                                 autonomous_snapshots: false,
                                 ..Default::default()
                             },
-                            Arc::new(turbolite::tiered::TurboliteSnapshotSource::new(
+                            Arc::new(crate::snapshot_source::TurboliteSnapshotSource(
                                 shared_vfs.clone(),
                             )),
                         )?);

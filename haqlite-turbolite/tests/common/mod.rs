@@ -77,7 +77,7 @@ pub async fn make_s3_vfs(
     let backend = s3_backend(s3_prefix).await;
     let vfs = turbolite::tiered::TurboliteVfs::with_backend(
         config,
-        backend.clone(),
+        Arc::new(haqlite_turbolite::TurboliteStorage(backend.clone())),
         tokio::runtime::Handle::current(),
     )
     .expect("create S3-backed VFS");

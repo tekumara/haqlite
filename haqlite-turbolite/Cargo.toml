@@ -14,24 +14,28 @@ categories = ["database", "network-programming"]
 haqlite = { path = "..", version = "0.4.0" }
 
 # HA coordination
-hadb = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb", branch = "hoist-prereq-internal-lease-store" }
-hadb-lease = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease", branch = "hoist-prereq-internal-lease-store" }
+hadb = { workspace = true }
+hadb-lease = { workspace = true }
+
+# Turbolite main still uses the 0.4 storage trait; adapt only at its VFS boundary.
+hadb-storage-04 = { package = "hadb-storage", version = "=0.4.1" }
 
 # Storage substrate
-turbodb = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "turbodb", branch = "hoist-prereq-internal-lease-store" }
-turbodb-manifest-cinch = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "turbodb-manifest-cinch", branch = "hoist-prereq-internal-lease-store" }
+turbodb = { workspace = true }
+turbodb-manifest-cinch = { workspace = true }
 
 # Turbolite VFS
-turbolite = { git = "https://github.com/russellromney/turbolite.git", version = "0.5", features = ["zstd", "wal"], branch = "main" }
+turbolite = { workspace = true }
 
 # WAL sync (walrust is always present for Continuous/Checkpoint paths)
-walrust = { git = "https://github.com/russellromney/walrust.git", version = "0.3.1", package = "walrust", branch = "main" }
+walrust = { workspace = true }
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 async-trait = "0.1"
 
 # Utilities
+tempfile = "3"
 anyhow = "1"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
@@ -43,12 +47,12 @@ rmp-serde = "1"
 reqwest = { version = "0.12", features = ["json"] }
 
 # HTTP lease store (for builder convenience)
-hadb-lease-cinch = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease-cinch", branch = "hoist-prereq-internal-lease-store" }
+hadb-lease-cinch = { workspace = true }
 
 # S3 storage backend (optional, for direct S3 use)
-hadb-storage = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage", branch = "hoist-prereq-internal-lease-store" }
-hadb-storage-s3 = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-s3", branch = "hoist-prereq-internal-lease-store", optional = true }
-hadb-storage-cinch = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-cinch", branch = "hoist-prereq-internal-lease-store" }
+hadb-storage = { workspace = true }
+hadb-storage-s3 = { workspace = true, optional = true }
+hadb-storage-cinch = { workspace = true }
 
 # SQLite
 rusqlite = { version = "0.35", features = ["bundled"] }
@@ -64,9 +68,9 @@ path = "src/bin/tiered_bench.rs"
 required-features = ["s3"]
 
 [dev-dependencies]
+serde_json = "1"
 tokio = { version = "1", features = ["full", "test-util"] }
-tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-turbodb-manifest-mem = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "turbodb-manifest-mem", branch = "hoist-prereq-internal-lease-store" }
-hadb-storage-local = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-local", branch = "hoist-prereq-internal-lease-store" }
+turbodb-manifest-mem = { workspace = true }
+hadb-storage-local = { workspace = true }
 proptest = "1"

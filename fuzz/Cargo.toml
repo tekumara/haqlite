@@ -4,6 +4,9 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
+[workspace]
+members = ["."]
+
 [package.metadata]
 cargo-fuzz = true
 
@@ -14,7 +17,15 @@ libfuzzer-sys = "0.4"
 path = ".."
 
 [dependencies.hrana-server]
-path = "../../hrana-server"
+git = "https://github.com/russellromney/hrana-server.git"
+version = "0.1.0"
+rev = "a3e554aedd6313175a367485bd2718a0e74ff1cc"
+
+# Match the root workspace: patches are not inherited by standalone fuzz builds.
+[patch.crates-io]
+hadb-storage = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
+hadb-io = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
+hadb-changeset = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
 
 [dependencies.serde_json]
 version = "1"

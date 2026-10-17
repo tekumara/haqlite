@@ -65,8 +65,8 @@ impl CliBackend for HaqliteBackend {
             args.s3.endpoint.as_deref(),
         )
         .await?;
-        let txid = walrust::sync::restore(
-            &storage,
+        let restored = walrust::sync::restore(
+            std::sync::Arc::new(storage),
             prefix,
             &args.name,
             &args.output,
@@ -77,7 +77,7 @@ impl CliBackend for HaqliteBackend {
             "Restored '{}' to {} (TXID {})",
             args.name,
             args.output.display(),
-            txid
+            restored.seq()
         );
         Ok(())
     }
@@ -251,7 +251,7 @@ impl CliBackend for HaqliteBackend {
         println!("Press Ctrl+C to stop");
         println!();
         ops::replicate_database(
-            &storage,
+            std::sync::Arc::new(storage),
             prefix,
             &args.source,
             &args.local,

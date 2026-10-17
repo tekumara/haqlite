@@ -38,7 +38,9 @@ fn build_coordinator(
     instance_id: &str,
     address: &str,
 ) -> Arc<Coordinator> {
+    let (fence, fence_writer) = hadb_lease::AtomicFence::new();
     let config = CoordinatorConfig {
+        fence_writer: Some(Arc::new(fence_writer)),
         lease: Some(LeaseConfig::new(
             lease_store,
             instance_id.to_string(),
@@ -50,11 +52,10 @@ fn build_coordinator(
         snapshot_interval: config.snapshot_interval,
         ..Default::default()
     };
-    let replicator = Arc::new(SqliteReplicator::new(
-        walrust_storage.clone(),
-        "test/",
-        replication_config,
-    ));
+    let replicator = Arc::new(
+        SqliteReplicator::new(walrust_storage.clone(), "test/", replication_config)
+            .with_fence(fence),
+    );
     let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
     Coordinator::new(
         replicator,
@@ -1514,7 +1515,9 @@ fn build_coordinator_fast(
     lease_config.renew_interval = Duration::from_millis(500);
     lease_config.follower_poll_interval = Duration::from_millis(200);
 
+    let (fence, fence_writer) = hadb_lease::AtomicFence::new();
     let config = CoordinatorConfig {
+        fence_writer: Some(Arc::new(fence_writer)),
         lease: Some(lease_config),
         follower_pull_interval: Duration::from_millis(100),
         replicator_timeout: Duration::from_secs(5),
@@ -1525,11 +1528,10 @@ fn build_coordinator_fast(
         snapshot_interval: config.snapshot_interval,
         ..Default::default()
     };
-    let replicator = Arc::new(SqliteReplicator::new(
-        walrust_storage.clone(),
-        "test-fast/",
-        replication_config,
-    ));
+    let replicator = Arc::new(
+        SqliteReplicator::new(walrust_storage.clone(), "test-fast/", replication_config)
+            .with_fence(fence),
+    );
     let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
     Coordinator::new(
         replicator,

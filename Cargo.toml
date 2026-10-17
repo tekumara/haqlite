@@ -2,34 +2,29 @@
 members = [".", "haqlite-turbolite"]
 resolver = "2"
 
-[patch."https://github.com/russellromney/hadb.git"]
-hadb = { path = "../hadb/hadb" }
-hadb-changeset = { path = "../hadb/hadb-changeset" }
-hadb-cli = { path = "../hadb/hadb-cli" }
-hadb-io = { path = "../hadb/hadb-io" }
-hadb-lease = { path = "../hadb/hadb-lease" }
-hadb-lease-cinch = { path = "../hadb/hadb-lease-cinch" }
-hadb-lease-mem = { path = "../hadb/hadb-lease-mem" }
-hadb-lease-nats = { path = "../hadb/hadb-lease-nats" }
-hadb-lease-s3 = { path = "../hadb/hadb-lease-s3" }
-hadb-storage = { path = "../hadb/hadb-storage" }
-hadb-storage-cinch = { path = "../hadb/hadb-storage-cinch" }
-hadb-storage-local = { path = "../hadb/hadb-storage-local" }
-hadb-storage-s3 = { path = "../hadb/hadb-storage-s3" }
-turbodb = { path = "../hadb/turbodb" }
-turbodb-manifest-cinch = { path = "../hadb/turbodb-manifest-cinch" }
-turbodb-manifest-mem = { path = "../hadb/turbodb-manifest-mem" }
+[workspace.dependencies]
+hadb = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-cli = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-lease = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-lease-cinch = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-lease-nats = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-lease-s3 = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-storage = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-storage-cinch = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-storage-local = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+hadb-storage-s3 = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+turbodb = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+turbodb-manifest-cinch = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+turbodb-manifest-mem = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b", version = "0.5.0" }
+walrust = { git = "https://github.com/russellromney/walrust.git", rev = "1c0656e2ce896a38fdf064a27402f6a8deb1f5aa", version = "0.7.0", package = "walrust-core" }
+turbolite = { git = "https://github.com/russellromney/turbolite.git", rev = "6a4f60741bbfd4243331bd837227fb264bdaa349", version = "0.5.0", features = ["zstd"] }
 
-[patch."https://github.com/russellromney/walrust.git"]
-walrust = { path = "../walrust/crates/walrust-core" }
-
+# walrust-core uses published hadb 0.5 crates. Unify their trait identities
+# with our main-pinned hadb crates; Turbolite's 0.4 requirements stay separate.
 [patch.crates-io]
-hadb-storage = { path = "../hadb/hadb-storage" }
-hadb-storage-local = { path = "../hadb/hadb-storage-local" }
-hadb-storage-s3 = { path = "../hadb/hadb-storage-s3" }
-
-[patch."https://github.com/russellromney/turbolite.git"]
-turbolite = { path = "../turbolite" }
+hadb-storage = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
+hadb-io = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
+hadb-changeset = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
 
 [workspace.package]
 version = "0.4.0"
@@ -51,11 +46,11 @@ categories = ["database", "network-programming"]
 
 [dependencies]
 # HA coordination framework
-hadb = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb", branch = "hoist-prereq-internal-lease-store" }
-hadb-lease-s3 = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease-s3", branch = "hoist-prereq-internal-lease-store" }
+hadb = { workspace = true }
+hadb-lease-s3 = { workspace = true }
 
 # WAL sync primitives
-walrust = { git = "https://github.com/russellromney/walrust.git", version = "0.3.1", package = "walrust", branch = "main" }
+walrust = { workspace = true }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -72,6 +67,7 @@ serde_json = "1"
 rmp-serde = "1"
 
 # Utilities
+tempfile = "3"
 anyhow = "1"
 arc-swap = "1"
 parking_lot = "0.12"
@@ -86,32 +82,32 @@ axum = "0.8"
 reqwest = { version = "0.12", features = ["json"] }
 
 # NATS lease store (optional)
-hadb-lease-nats = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease-nats", branch = "hoist-prereq-internal-lease-store", optional = true }
+hadb-lease-nats = { workspace = true, optional = true }
 
 # Lease abstractions (trait crate provides FenceSource used by fenced
 # storage adapters).
-hadb-lease = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease", branch = "hoist-prereq-internal-lease-store" }
+hadb-lease = { workspace = true }
 
 # Storage substrate (trait + impls)
-hadb-storage = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage", branch = "hoist-prereq-internal-lease-store" }
-hadb-storage-s3 = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-s3", branch = "hoist-prereq-internal-lease-store" }
-hadb-storage-cinch = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-cinch", branch = "hoist-prereq-internal-lease-store" }
+hadb-storage = { workspace = true }
+hadb-storage-s3 = { workspace = true }
+hadb-storage-cinch = { workspace = true }
 
 # HTTP lease store
-hadb-lease-cinch = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-lease-cinch", branch = "hoist-prereq-internal-lease-store" }
+hadb-lease-cinch = { workspace = true }
 
 # Shared CLI framework
-hadb-cli = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-cli", branch = "hoist-prereq-internal-lease-store" }
+hadb-cli = { workspace = true }
 
 # Hrana protocol (libSQL HTTP API)
-hrana-server = { git = "https://github.com/russellromney/hrana-server.git", version = "0.1.0", package = "hrana-server" }
+hrana-server = { git = "https://github.com/russellromney/hrana-server.git", rev = "a3e554aedd6313175a367485bd2718a0e74ff1cc", version = "0.1.0", package = "hrana-server" }
 
 # CLI + logging
 clap = { version = "4", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # SQLite
-rusqlite = { version = "0.35", features = ["bundled"] }
+rusqlite = { version = "0.35", features = ["bundled", "backup"] }
 
 [features]
 nats-lease = ["dep:hadb-lease-nats"]
@@ -142,7 +138,6 @@ path = "src/bin/experiment.rs"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
-tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.35", features = ["bundled"] }
 async-trait = "0.1"
@@ -156,4 +151,4 @@ http-body-util = "0.1"
 axum = "0.8"
 proptest = "1.5"
 proptest-derive = "0.5"
-hadb-storage-local = { git = "https://github.com/russellromney/hadb.git", version = "0.4.0", package = "hadb-storage-local", branch = "hoist-prereq-internal-lease-store" }
+hadb-storage-local = { workspace = true }

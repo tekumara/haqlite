@@ -35,87 +35,8 @@ pub struct SqliteFollowerBehavior {
     applied_epoch: Arc<AppliedEpoch>,
 }
 
-/// Verify the changeset checksum chain after `current_seq` before applying it
-/// by raw page content (F5). `pull_incremental` ignores the checksum chain and
-/// applies whatever it finds, so a forked lineage from a prior leader would be
-/// silently merged. This pre-flight reuses the same chain check `restore` does:
-/// contiguous seqs and `prev_checksum` agreement, anchored on the changeset at
-/// `current_seq` when one exists. On a break it fails closed so the follower
-/// stalls (visibly) instead of corrupting state by bridging a fork.
-async fn verify_chain_after(
-    storage: &dyn StorageBackend,
-    prefix: &str,
-    db_name: &str,
-    current_seq: u64,
-) -> Result<()> {
-    use walrust::hadb_changeset::physical;
-    use walrust::hadb_changeset::storage::{self as cs_storage, ChangesetKind};
-
-    let files = cs_storage::discover_after(
-        storage,
-        prefix,
-        db_name,
-        current_seq,
-        ChangesetKind::Physical,
-    )
-    .await?;
-    if files.is_empty() {
-        return Ok(());
-    }
-
-    // Anchor on the prior changeset's checksum when the cursor is past 0.
-    let mut expected_prev: Option<u64> = if current_seq > 0 {
-        let key = cs_storage::format_key(
-            prefix,
-            db_name,
-            cs_storage::GENERATION_INCREMENTAL,
-            current_seq,
-            ChangesetKind::Physical,
-        );
-        match storage.get(&key).await? {
-            Some(data) => Some(
-                physical::decode(&data)
-                    .map_err(|e| anyhow::anyhow!("decode prior changeset {}: {}", key, e))?
-                    .checksum,
-            ),
-            None => None,
-        }
-    } else {
-        None
-    };
-
-    let mut expected_seq = current_seq + 1;
-    for file in &files {
-        let data = storage.get(&file.key).await?.ok_or_else(|| {
-            anyhow::anyhow!("changeset disappeared during chain verify: {}", file.key)
-        })?;
-        let changeset = physical::decode(&data)
-            .map_err(|e| anyhow::anyhow!("decode changeset {}: {}", file.key, e))?;
-        if file.seq != expected_seq {
-            anyhow::bail!(
-                "non-contiguous changeset for '{}': expected seq {}, found {} at {}",
-                db_name,
-                expected_seq,
-                file.seq,
-                file.key
-            );
-        }
-        if let Some(prev) = expected_prev {
-            if changeset.header.prev_checksum != prev {
-                anyhow::bail!(
-                    "changeset checksum chain break for '{}' at {}: expected prev {:016x}, found {:016x} (forked lineage; refusing to bridge by page content)",
-                    db_name,
-                    file.key,
-                    prev,
-                    changeset.header.prev_checksum,
-                );
-            }
-        }
-        expected_prev = Some(changeset.checksum);
-        expected_seq += 1;
-    }
-    Ok(())
-}
+// walrust-core now verifies the complete sequence/checksum chain before writing
+// any pages. Retain its full PullCursor between polls; hadb exposes only seq.
 
 impl SqliteFollowerBehavior {
     pub fn new(walrust_storage: Arc<dyn StorageBackend>) -> Self {
@@ -167,26 +88,27 @@ impl FollowerBehavior for SqliteFollowerBehavior {
         metrics: Arc<HaMetrics>,
     ) -> Result<()> {
         let mut interval = tokio::time::interval(poll_interval);
+        let mut cursor: Option<walrust::PullCursor> = None;
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     let current_seq = position.load(Ordering::SeqCst);
-                    // F5: verify the checksum chain before pull_incremental
-                    // applies it by page content. A forked tail fails closed
-                    // here so we stall (visible) instead of merging the fork.
-                    if let Err(e) = verify_chain_after(
-                        self.walrust_storage.as_ref(),
-                        prefix,
-                        db_name,
-                        current_seq,
-                    ).await {
-                        tracing::error!("Follower '{}': chain verify failed: {}", db_name, e);
-                        caught_up.store(false, Ordering::SeqCst);
-                        metrics.follower_caught_up.store(0, Ordering::Relaxed);
-                        metrics.inc(&metrics.follower_pulls_failed);
-                        continue;
-                    }
+                    let current = match cursor {
+                        Some(current) if current.seq == current_seq => current,
+                        _ => match crate::replication_cursor::cursor_at(
+                            self.walrust_storage.as_ref(), prefix, db_name, db_path, current_seq,
+                        ).await {
+                            Ok(current) => current,
+                            Err(e) => {
+                                tracing::error!("Follower '{}': cannot establish cursor: {}", db_name, e);
+                                caught_up.store(false, Ordering::SeqCst);
+                                metrics.follower_caught_up.store(0, Ordering::Relaxed);
+                                metrics.inc(&metrics.follower_pulls_failed);
+                                continue;
+                            }
+                        },
+                    };
                     // F11: refuse a former leader's stale-epoch changeset before
                     // applying it. Fail closed (stall, visible) on rejection.
                     if let Err(e) = self.gate_leader_epoch(prefix, db_name).await {
@@ -201,9 +123,11 @@ impl FollowerBehavior for SqliteFollowerBehavior {
                         prefix,
                         db_name,
                         db_path,
-                        current_seq,
+                        current,
                     ).await {
-                        Ok(new_seq) => {
+                        Ok(next) => {
+                            cursor = Some(next);
+                            let new_seq = next.seq;
                             if new_seq > current_seq {
                                 tracing::debug!(
                                     "Follower '{}': pulled seq {} -> {}",
@@ -222,6 +146,8 @@ impl FollowerBehavior for SqliteFollowerBehavior {
                         }
                         Err(e) => {
                             tracing::error!("Follower '{}': pull failed: {}", db_name, e);
+                            caught_up.store(false, Ordering::SeqCst);
+                            metrics.follower_caught_up.store(0, Ordering::Relaxed);
                             metrics.inc(&metrics.follower_pulls_failed);
                         }
                     }
@@ -240,11 +166,7 @@ impl FollowerBehavior for SqliteFollowerBehavior {
         db_path: &PathBuf,
         position: u64,
     ) -> Result<()> {
-        // F5: fail closed on a forked tail rather than bridging it by content.
-        verify_chain_after(self.walrust_storage.as_ref(), prefix, db_name, position).await?;
-        // F11: refuse a former leader's stale-epoch changeset before applying.
-        self.gate_leader_epoch(prefix, db_name).await?;
-        let new_seq = walrust::sync::pull_incremental(
+        let cursor = crate::replication_cursor::cursor_at(
             self.walrust_storage.as_ref(),
             prefix,
             db_name,
@@ -252,11 +174,21 @@ impl FollowerBehavior for SqliteFollowerBehavior {
             position,
         )
         .await?;
+        // F11: refuse a former leader's stale-epoch changeset before applying.
+        self.gate_leader_epoch(prefix, db_name).await?;
+        let new_seq = walrust::sync::pull_incremental(
+            self.walrust_storage.as_ref(),
+            prefix,
+            db_name,
+            db_path,
+            cursor,
+        )
+        .await?;
         tracing::info!(
             "SqliteFollowerBehavior '{}': caught up seq {} -> {}",
             db_name,
             position,
-            new_seq
+            new_seq.seq
         );
         Ok(())
     }

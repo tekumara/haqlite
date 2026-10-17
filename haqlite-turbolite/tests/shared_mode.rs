@@ -115,7 +115,7 @@ async fn shared_single_node_write_read() {
 
     // Write
     let rows = db
-        .execute(
+        .execute_async(
             "INSERT INTO t (id, val) VALUES (?1, ?2)",
             &[SqlValue::Integer(1), SqlValue::Text("hello".into())],
         )
@@ -153,7 +153,7 @@ async fn shared_sequential_writes_increment_manifest() {
     .await;
 
     for i in 0..3 {
-        db.execute(
+        db.execute_async(
             "INSERT INTO t (id, val) VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("v{}", i))],
         )
@@ -188,7 +188,7 @@ async fn shared_mode_no_forwarding_server() {
     // If forwarding server was started, this test would fail on port conflict
     // when run in parallel with other tests using the same port.
     let rows = db
-        .execute("INSERT INTO t VALUES (1, 'ok')", &[])
+        .execute_async("INSERT INTO t VALUES (1, 'ok')", &[])
         .await
         .unwrap();
     assert_eq!(rows, 1);
@@ -206,7 +206,7 @@ async fn dedicated_local_mode_still_works() {
     let mut db = HaQLite::local(db_path.to_str().unwrap(), SCHEMA).unwrap();
 
     let rows = db
-        .execute(
+        .execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(1), SqlValue::Text("singlewriter".into())],
         )
@@ -253,7 +253,7 @@ async fn shared_two_nodes_a_writes_b_reads_fresh() {
     .await;
 
     // Node A writes
-    db_a.execute(
+    db_a.execute_async(
         "INSERT INTO t VALUES (?1, ?2)",
         &[SqlValue::Integer(1), SqlValue::Text("from-a".into())],
     )
@@ -502,12 +502,12 @@ async fn test_stress_concurrent_write_contention() {
 
     let handle_a = tokio::spawn(async move {
         db_a2
-            .execute("INSERT INTO t VALUES (1, 'from-a')", &[])
+            .execute_async("INSERT INTO t VALUES (1, 'from-a')", &[])
             .await
     });
     let handle_b = tokio::spawn(async move {
         db_b2
-            .execute("INSERT INTO t VALUES (2, 'from-b')", &[])
+            .execute_async("INSERT INTO t VALUES (2, 'from-b')", &[])
             .await
     });
 
@@ -577,7 +577,7 @@ async fn test_stress_alternating_node_writes() {
     )
     .await;
     for i in 0..20 {
-        db_a.execute(
+        db_a.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[
                 SqlValue::Integer(i),
@@ -609,7 +609,7 @@ async fn test_stress_alternating_node_writes() {
     )
     .await;
     for i in 20..40 {
-        db_b.execute(
+        db_b.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[
                 SqlValue::Integer(i),
@@ -670,7 +670,7 @@ async fn test_stress_large_transaction() {
     // Insert 50 rows in individual execute calls.
     // Each is a full lease acquire/write/S3 sync/manifest publish/release cycle.
     for i in 0..50 {
-        db_a.execute(
+        db_a.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("row-{}", i))],
         )
@@ -780,7 +780,7 @@ async fn test_stress_many_sequential_writes() {
     .await;
 
     for i in 0..50 {
-        db.execute(
+        db.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("v{}", i))],
         )
@@ -898,7 +898,7 @@ async fn test_fresh_read_consistency() {
     )
     .await;
     for i in 1..=5 {
-        db_a.execute(
+        db_a.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("row-{}", i))],
         )
@@ -935,7 +935,7 @@ async fn test_fresh_read_consistency() {
     )
     .await;
     for i in 6..=8 {
-        db_b.execute(
+        db_b.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("row-{}", i))],
         )
@@ -1090,7 +1090,7 @@ async fn test_manifest_version_monotonicity() {
 
     let mut prev_version = 0u64;
     for i in 1..=10 {
-        db.execute(
+        db.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("v{}", i))],
         )
@@ -1149,7 +1149,7 @@ async fn test_multiple_databases_shared_stores() {
 
     // Write 3 rows to db1
     for i in 0..3 {
-        db1.execute(
+        db1.execute_async(
             "INSERT INTO t VALUES (?1, ?2)",
             &[SqlValue::Integer(i), SqlValue::Text(format!("alpha-{}", i))],
         )
@@ -1158,7 +1158,7 @@ async fn test_multiple_databases_shared_stores() {
     }
 
     // Write 1 row to db2
-    db2.execute("INSERT INTO t VALUES (100, 'beta-0')", &[])
+    db2.execute_async("INSERT INTO t VALUES (100, 'beta-0')", &[])
         .await
         .unwrap();
 

@@ -55,6 +55,7 @@ fn seed_manifest() -> TlManifest {
         btree_groups: HashMap::new(),
         page_to_tree_name: HashMap::new(),
         tree_name_to_groups: HashMap::new(),
+        tree_name_to_root_page: HashMap::new(),
         group_to_tree_name: HashMap::new(),
         db_header: None,
         discontinuity_stamp: 0,
@@ -80,7 +81,12 @@ fn build_writer_vfs() -> TurboliteVfs {
     let rt_handle = tokio::runtime::Handle::current();
     let backend: Arc<dyn hadb_storage::StorageBackend> =
         Arc::new(hadb_storage_local::LocalStorage::new(&cache_dir));
-    let vfs = TurboliteVfs::with_backend(config, backend, rt_handle).expect("vfs");
+    let vfs = TurboliteVfs::with_backend(
+        config,
+        Arc::new(haqlite_turbolite::TurboliteStorage(backend)),
+        rt_handle,
+    )
+    .expect("vfs");
     let mut seed = seed_manifest();
     seed.detect_and_normalize_strategy();
     vfs.set_manifest(seed);

@@ -4,6 +4,8 @@
 //! # #[tokio::main]
 //! # async fn main() -> anyhow::Result<()> {
 //! use haqlite::{HaQLite, SqlValue};
+//! # let my_lease_store = std::sync::Arc::new(haqlite::InMemoryLeaseStore::new());
+//! # let my_storage = std::sync::Arc::new(hadb_storage_local::LocalStorage::new("/tmp/haqlite-example"));
 //!
 //! let mut db = HaQLite::builder()
 //!     .lease_store(my_lease_store)
@@ -96,6 +98,8 @@ pub use hadb::{validate_mode_durability, validate_mode_role, Durability, HaMode}
 /// # #[tokio::main]
 /// # async fn main() -> anyhow::Result<()> {
 /// use haqlite::HaQLite;
+/// # let my_lease_store = std::sync::Arc::new(haqlite::InMemoryLeaseStore::new());
+/// # let my_storage = std::sync::Arc::new(hadb_storage_local::LocalStorage::new("/tmp/haqlite-example"));
 ///
 /// let mut db = HaQLite::builder()
 ///     .lease_store(my_lease_store)

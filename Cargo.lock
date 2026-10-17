@@ -1686,7 +1686,8 @@ dependencies = [
 
 [[package]]
 name = "hadb"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1706,11 +1707,12 @@ dependencies = [
 
 [[package]]
 name = "hadb-changeset"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
@@ -1719,7 +1721,8 @@ dependencies = [
 
 [[package]]
 name = "hadb-cli"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1735,7 +1738,8 @@ dependencies = [
 
 [[package]]
 name = "hadb-io"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1756,19 +1760,21 @@ dependencies = [
 
 [[package]]
 name = "hadb-lease"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
  "chrono",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "serde",
 ]
 
 [[package]]
 name = "hadb-lease-cinch"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1784,7 +1790,8 @@ dependencies = [
 
 [[package]]
 name = "hadb-lease-mem"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1793,7 +1800,8 @@ dependencies = [
 
 [[package]]
 name = "hadb-lease-nats"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1805,7 +1813,8 @@ dependencies = [
 
 [[package]]
 name = "hadb-lease-s3"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1823,7 +1832,19 @@ dependencies = [
 
 [[package]]
 name = "hadb-storage"
-version = "0.4.0"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4997b5cf025f74916b3f2d9d39a1664e4c1d40829c98ee28a4f62c8c583bf243"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+]
+
+[[package]]
+name = "hadb-storage"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1832,12 +1853,13 @@ dependencies = [
 
 [[package]]
 name = "hadb-storage-cinch"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
  "hadb-lease",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "percent-encoding",
  "reqwest",
  "serde",
@@ -1849,24 +1871,39 @@ dependencies = [
 [[package]]
 name = "hadb-storage-local"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4470586dd22653a18c8907a99612eb4c88a4b47174fefeaf4ab45c90ade13fbf"
 dependencies = [
  "anyhow",
  "async-trait",
- "hadb-storage",
+ "hadb-storage 0.4.1",
+ "rand 0.8.6",
+ "tokio",
+]
+
+[[package]]
+name = "hadb-storage-local"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hadb-storage 0.5.0",
  "rand 0.8.6",
  "tokio",
 ]
 
 [[package]]
 name = "hadb-storage-s3"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "aws-smithy-types",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "tokio",
  "tracing",
 ]
@@ -1903,9 +1940,9 @@ dependencies = [
  "hadb-lease-cinch",
  "hadb-lease-nats",
  "hadb-lease-s3",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "hadb-storage-cinch",
- "hadb-storage-local",
+ "hadb-storage-local 0.5.0",
  "hadb-storage-s3",
  "hostname",
  "hrana-server",
@@ -1926,7 +1963,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "walrust",
+ "walrust-core",
 ]
 
 [[package]]
@@ -1938,15 +1975,17 @@ dependencies = [
  "hadb",
  "hadb-lease",
  "hadb-lease-cinch",
- "hadb-storage",
+ "hadb-storage 0.4.1",
+ "hadb-storage 0.5.0",
  "hadb-storage-cinch",
- "hadb-storage-local",
+ "hadb-storage-local 0.5.0",
  "hadb-storage-s3",
  "haqlite",
  "proptest",
  "reqwest",
  "rmp-serde",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
@@ -1956,7 +1995,7 @@ dependencies = [
  "turbodb-manifest-mem",
  "turbolite",
  "uuid",
- "walrust",
+ "walrust-core",
 ]
 
 [[package]]
@@ -2056,7 +2095,7 @@ dependencies = [
 [[package]]
 name = "hrana-server"
 version = "0.1.0"
-source = "git+https://github.com/russellromney/hrana-server.git#a3e554aedd6313175a367485bd2718a0e74ff1cc"
+source = "git+https://github.com/russellromney/hrana-server.git?rev=a3e554aedd6313175a367485bd2718a0e74ff1cc#a3e554aedd6313175a367485bd2718a0e74ff1cc"
 dependencies = [
  "base64",
  "hex",
@@ -2507,6 +2546,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
+name = "litepages"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f47037021fef1e7cf4d506970647944a33f6c75f83eb5ca3989df5a2948f82d5"
+dependencies = [
+ "bitflags",
+ "crc",
+ "lz4_flex",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2528,6 +2580,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
 dependencies = [
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
 ]
 
 [[package]]
@@ -4227,11 +4288,12 @@ dependencies = [
 
 [[package]]
 name = "turbodb"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "serde",
  "serde_bytes",
  "thiserror 1.0.69",
@@ -4239,12 +4301,13 @@ dependencies = [
 
 [[package]]
 name = "turbodb-manifest-cinch"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
  "hadb-lease",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "reqwest",
  "rmp-serde",
  "serde",
@@ -4255,11 +4318,12 @@ dependencies = [
 
 [[package]]
 name = "turbodb-manifest-mem"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
 dependencies = [
  "anyhow",
  "async-trait",
- "hadb-storage",
+ "hadb-storage 0.5.0",
  "tokio",
  "turbodb",
 ]
@@ -4267,6 +4331,7 @@ dependencies = [
 [[package]]
 name = "turbolite"
 version = "0.5.0"
+source = "git+https://github.com/russellromney/turbolite.git?rev=6a4f60741bbfd4243331bd837227fb264bdaa349#6a4f60741bbfd4243331bd837227fb264bdaa349"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4277,12 +4342,12 @@ dependencies = [
  "ciborium",
  "clap",
  "clap_complete",
+ "crossbeam-epoch",
  "file-guard",
  "flume",
  "fs2",
- "hadb-storage",
- "hadb-storage-local",
- "hadb-storage-s3",
+ "hadb-storage 0.4.1",
+ "hadb-storage-local 0.4.0",
  "libc",
  "libsqlite3-sys",
  "once_cell",
@@ -4301,9 +4366,14 @@ dependencies = [
  "tokio",
  "tracing",
  "ureq",
- "walrust",
  "zstd",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
 
 [[package]]
 name = "typenum"
@@ -4448,8 +4518,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "walrust"
-version = "0.3.1"
+name = "walrust-core"
+version = "0.7.0"
+source = "git+https://github.com/russellromney/walrust.git?rev=1c0656e2ce896a38fdf064a27402f6a8deb1f5aa#1c0656e2ce896a38fdf064a27402f6a8deb1f5aa"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4459,7 +4530,8 @@ dependencies = [
  "futures",
  "hadb-changeset",
  "hadb-io",
- "hadb-storage",
+ "hadb-storage 0.5.0",
+ "litepages",
  "rusqlite",
  "serde",
  "serde_bytes",
@@ -4468,6 +4540,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "uuid",
  "walkdir",
 ]
 
