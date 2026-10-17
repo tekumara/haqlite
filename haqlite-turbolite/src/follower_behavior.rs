@@ -229,7 +229,7 @@ impl TurboliteFollowerBehavior {
                     }
                 }
 
-                vfs.set_manifest_bytes(&payload_owned)
+                vfs.set_manifest_bytes_under_replay_write(&payload_owned, &_gate)
                     .map_err(|e| anyhow!("turbolite set_manifest_bytes failed: {}", e))?;
 
                 let page_count = vfs.manifest().page_count;
@@ -406,9 +406,10 @@ impl TurboliteFollowerBehavior {
                         return Err(anyhow!("turbolite replay cursor materialize failed: {}", e))
                     }
                 }
-                vfs.set_manifest_bytes(&payload_owned).map_err(|e| {
-                    anyhow!("turbolite replay cursor set_manifest_bytes failed: {}", e)
-                })?;
+                vfs.set_manifest_bytes_under_replay_write(&payload_owned, &_gate)
+                    .map_err(|e| {
+                        anyhow!("turbolite replay cursor set_manifest_bytes failed: {}", e)
+                    })?;
                 let page_count = vfs.manifest().page_count;
                 vfs.sync_after_external_restore(page_count);
             }

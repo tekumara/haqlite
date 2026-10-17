@@ -1,23 +1,23 @@
-# Upstream dependency upgrade
+# Sibling dependency upgrade
 
-This upgrade is not ready to merge. The base library builds and its test harness passes, but tiered replication still has safety failures and deadlocks. Do not treat a successful build as proof that tiered failover works.
+This checkout now selects the patched `tekumara` forks and applies the lock-aware manifest integration. The default-feature workspace passes its local runtime sweep, including the previously failing Flotilla and deadlocking adoption tests. Live service validation and smaller-page import/replay safety remain incomplete; this is not full acceptance.
 
 The work is independent of Node bindings PR #13 and follower-cursor issue #12. Neither is implemented or declared fixed here.
 
-A follow-up [upstream repair patch set](../patches/README.md) addresses the Flotilla failures and manifest-adoption deadlocks in isolated validation copies. The proposed repairs are not applied to the Git-pinned dependencies selected by this checkout.
+The repairs are published in [walrust PR 47](https://github.com/russellromney/walrust/pull/47) and [Turbolite PR 47](https://github.com/russellromney/turbolite/pull/47). The selected dependencies now contain those repairs. No temporary Git-source overrides are needed for this checkout.
 
-The existing worktree branch is `chore/haqlite-upstream-dependency-upgrade`, with managed target `main`. Starting HEAD, local `main` and `origin/main` all matched `db6db54b555a56c7352a5c9d57f1b998da05d199` before editing. Implementation stayed in that worktree. The upgrade was subsequently committed as `9b20551b12bafe9bcbf10f696a7a6972b8e5998d` at the user's request. No pushes, PRs or issue/comment changes were made.
+The existing worktree branch is `chore/haqlite-upstream-dependency-upgrade`, with managed target `main`. Starting HEAD, local `main` and `origin/main` all matched `db6db54b555a56c7352a5c9d57f1b998da05d199` before editing. The original upgrade was committed as `9b20551b12bafe9bcbf10f696a7a6972b8e5998d` and patch preparation as `40cb39b44e0c9de6772abed40ad7061ca1311a53`. The upstream PRs were prepared in separately requested app-managed worktrees. Haqlite's fork-pin update stays in this existing worktree.
 
 ## Source revisions
 
-These full revisions matched upstream `main` during validation on 17 October 2026:
+The fork branch heads were verified on 17 October 2026. Cargo pins full commits, not moving branches. Hadb and Hrana retain the original verified upstream revisions.
 
 | Repository | Package version | Git revision |
 | --- | --- | --- |
-| hadb | 0.5.0 | `3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b` |
-| walrust | `walrust-core` 0.7.0 | `1c0656e2ce896a38fdf064a27402f6a8deb1f5aa` |
-| turbolite | 0.5.0 | `6a4f60741bbfd4243331bd837227fb264bdaa349` |
-| hrana-server | 0.1.0 | `a3e554aedd6313175a367485bd2718a0e74ff1cc` |
+| russellromney/hadb | 0.5.0 | `3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b` |
+| tekumara/walrust | `walrust-core` 0.7.0 | `1d59c45d3c944b0d606989d07e3e013b175b0b3e` |
+| tekumara/turbolite | 0.5.0 | `d2b48f32282584d5713eb20d8ac5206a3314fb46` |
+| russellromney/hrana-server | 0.1.0 | `a3e554aedd6313175a367485bd2718a0e74ff1cc` |
 
 Direct sibling dependencies share root workspace declarations. The Rust dependency name `walrust` now aliases package `walrust-core`. The standalone fuzz workspace uses the same Hrana revision as the root package.
 
@@ -25,7 +25,7 @@ There are no developer-local sibling patches or external target directories. Bot
 
 ### Older transitive storage crates remain
 
-Turbolite main still requires crates.io `hadb-storage` 0.4.1 and `hadb-storage-local` 0.4.0. These are not upgraded by the Git pins.
+The pinned Turbolite fork still requires crates.io `hadb-storage` 0.4.1 and `hadb-storage-local` 0.4.0. These are not upgraded by the Git pins.
 
 `haqlite-turbolite` names its compatibility dependency `hadb-storage-04`. Its `TurboliteStorage` adapter forwards every operation to the current 0.5 backend, including CAS, pagination, range and batch operations. It preserves backend errors and identity rather than substituting trait defaults.
 
@@ -60,41 +60,37 @@ The port makes these changes:
 - materializes the exact Turbolite manifest to implement the current snapshot-source checksum contract
 - uses an explicit manifest replay sequence when its cursor epoch is populated, not SQLite's unrelated change counter
 - uses SQLite online backup and conditional upload for one-shot CLI snapshots, including DELETE-mode databases
+- passes the existing replay write guard to manifest installation, without releasing the atomic adoption gate
 
 The legacy `with_allow_fork_bridge` setting never disables native walrust sequence or checksum verification.
 
 The new regression tests use real SQLite, native codecs and temporary storage. They cover initial snapshots, restored-leader shipping, lease-loss rejection, owned-lineage follower replay, fork rejection, snapshot cursor checksums, storage CAS and pagination, and page-marker truncation with SQLite integrity checking. Existing epoch, cursor and fork tests remain enabled.
 
-## Unresolved tiered blockers
+## Repaired local tiered failures
 
-### Manifest adoption deadlocks under the replay gate
+### Manifest adoption retains the held replay gate
 
-The pinned Turbolite `TurboliteVfs::set_manifest` now acquires `replay_gate.write()` internally. Haqlite already holds this write gate across materialization, manifest installation and replay finalization. Calling `set_manifest_bytes` from that critical section deadlocks.
+The original Turbolite setter reacquired the non-reentrant replay write lock already held by haqlite. Both client opening and atomic follower adoption deadlocked.
 
-A native process stack confirmed the wait in `set_manifest` during `TurboliteWalReplicator::restore_from_manifest`. The affected paths include follower base adoption and single-writer client opening.
+The fork adds `set_manifest_bytes_under_replay_write(bytes, guard)`, which validates that the supplied guard belongs to this exact VFS. Haqlite now uses it at the 4 installation calls already inside its write gate. Materialization, replay finalization and cursor handling keep their existing protection. The ordinary setter retains its no-op fast path and checks the version floor under the gate before adoption.
 
-Turbolite exposes `finalize_assuming_external_write`, but no corresponding manifest-installation API for callers holding the gate. A safe upstream API is needed to retain atomic adoption. Releasing the outer lock between materialization and installation would expose torn snapshots, so this port does not do that.
+With the selected Git commits, all 6 `mode_role_bail` cases complete. All 11 `singlewriter_failover` harness cases also complete, including atomic adoption and concurrent-reader consistency. Four object-storage cases return early without `TIERED_TEST_BUCKET`; they do not establish live S3 coverage.
 
-These final serial targets were terminated after 45 seconds:
+### Failed final sync remains retryable
 
-- `mode_role_bail`, blocked at `singlewriter_client_opens_as_read_only_consumer`
-- `singlewriter_failover`, blocked at `follower_apply_is_atomic_under_missing_page_group_race`
+The original fenced publication path advanced speculative WAL-reader checksums without rolling them back after an upload failure. A retry could incorrectly report no pending frames and allow `close()` to succeed while storage was still failing.
 
-Their remaining tests were not reached. Earlier targeted runs also hung. Increasing failover fixture TTLs above hadb 0.5's two-second clock-skew margin did not resolve this lock conflict.
+The walrust fork restores the offset, generation, salt and checksum seed unless publication succeeds. The existing `continuous_close_can_retry_after_failed_final_sync` regression now passes without weakening its injected-failure assertion.
 
-### Failed final sync can be acknowledged by a retry
+### Reopened leaders retain their live WAL
 
-`flotilla_regression::continuous_close_can_retry_after_failed_final_sync` fails because `close()` returns success while the injected WAL storage failure is still active.
+The original empty-WAL journal-mode probe opened and closed SQLite's default VFS. That connection could unlink an empty WAL still owned by Turbolite. Subsequent writes reached an open but unlinked file that walrust could no longer discover by pathname.
 
-The pinned native `sync_wal_fenced_delta` reads and advances WAL checksum-chain bookkeeping before publishing. Its publication-error path does not restore all that bookkeeping. This is a dependency-boundary retry concern; the native high-level replicator keeps that state private. The test remains enabled and failing. No success result should be taken as a durability guarantee for this case.
+The walrust fork reads the SQLite header without opening a database connection. The existing `continuous_leader_publishes_replayed_base_before_new_writes` regression now passes: the third node reads the second leader's row. The full local Flotilla target reports 16 passed and one existing ignored stress test.
 
-### A reopened tiered leader's write is missing
+## Smaller-page import remains unresolved
 
-`flotilla_regression::continuous_leader_publishes_replayed_base_before_new_writes` fails because the third node cannot find the second leader's row. This remains unresolved in the selected Git dependencies. The follow-up patch set proves that walrust's empty-WAL SQLite probe unlinks the external VFS's live WAL. Its native regression and this three-node test pass with the proposed non-mutating probe.
-
-The final serial Flotilla run reports 14 passed, 2 failed and one existing ignored stress test. Earlier parallel runs also tripped latency and file-descriptor assertions; those assertions passed in the final serial run.
-
-An exploratory 512-byte-page version of the new import-and-truncate fixture produced a malformed SQLite cache image. The retained integrity regression uses the default 4096-byte pages. Smaller-page import/replay remains unresolved; the passing regression does not establish its safety.
+An exploratory 512-byte-page version of the import-and-truncate fixture produced a malformed SQLite cache image. The retained integrity regression uses the default 4096-byte pages. The passing regression does not establish smaller-page import/replay safety.
 
 ## Issue 12 remains separate
 
@@ -104,25 +100,26 @@ The new follower regression confirms that zero fails closed. Supplying the actua
 
 ## Validation results
 
-Final validation on macOS arm64 used Rust 1.99.0:
+Validation of the selected fork Git commits on macOS arm64 used Rust 1.99.0. These checks ran in this checkout without temporary Cargo Git-source overrides. The existing hadb crates.io patches remain part of the normal manifest configuration.
 
 | Check | Result |
 | --- | --- |
 | Workspace locked check, all targets and all features | passed |
+| Full default-feature workspace runtime sweep, serial | 331 harness passes, no failures, one existing ignored stress test |
 | Root package locked tests, all features, including doctests | 225 harness passes, no failures |
-| Tiered library tests | 43 passed |
+| Tiered library tests, all features | 43 passed |
 | Standalone fuzz locked check, all targets | passed; fuzzing itself was not run |
 | Workspace library Clippy, all features | passed with warnings; not warning-free |
 | Formatting and whitespace checks | passed |
-| Full workspace runtime tests | not green |
+| Full all-feature workspace runtime acceptance with external services | unvalidated |
 
 The root harness count includes an environment-gated NATS test that returns early without `NATS_URL`. It is not evidence of live NATS coverage.
 
-The tiered runtime sweep built all-feature test executables, ran targets serially, and enforced the stated 45-second limit per target. Completed local targets included `builder_explicit`, `continuous_bootstrap`, `cursor_handshake`, `property_execution`, `static_call_list`, `test_manifest_store` and `turbolite_manifest_round_trip`.
+The default-feature sweep now completes every target, including `flotilla_regression`, `mode_role_bail` and `singlewriter_failover`. No test assertions were changed for the fork-pin update. Locked metadata confirms both repaired crates come from the specified fork Git commits, not local path replacements. Lockfile changes only replace the intended Git source entries.
 
-External-service validation did not run successfully:
+External-service validation remains incomplete:
 
-- 35 legacy S3 cases failed on missing `TIERED_TEST_BUCKET`, across `e2e_modes`, `lease_split_brain`, `mode_f_s3primary`, `mode_i_production`, `mode_matrix`, `shared_mode` and `turbolite_split_brain`
+- the original all-feature sweep had 35 legacy S3 failures from missing `TIERED_TEST_BUCKET`, across `e2e_modes`, `lease_split_brain`, `mode_f_s3primary`, `mode_i_production`, `mode_matrix`, `shared_mode` and `turbolite_split_brain`; those cases have not been rerun with service credentials
 - some bootstrap and object-store cursor tests return early when that variable is absent; harness success is not service-backed validation
 - live S3-compatible storage, NATS and HTTP service deployments were not provisioned or validated
 - the existing ignored file-descriptor stress test, cross-platform builds and fuzz execution were not run
@@ -142,6 +139,7 @@ Run the portable checks from the repository root:
 
 ```sh
 cargo check --locked --workspace --all-targets --all-features
+cargo test --locked --workspace --no-fail-fast -- --test-threads=1
 cargo test --locked -p haqlite --all-features --no-fail-fast
 cargo test --locked -p haqlite-turbolite --all-features --lib
 cargo check --locked --manifest-path fuzz/Cargo.toml --all-targets
@@ -150,7 +148,7 @@ cargo fmt --all --check
 git diff --check
 ```
 
-Reproduce the local tiered blockers separately. The last two commands need an external timeout or manual termination because they deadlock:
+Reproduce the repaired local tiered targets separately. All 3 now complete with the selected forks:
 
 ```sh
 cargo test --locked -p haqlite-turbolite --test flotilla_regression -- --test-threads=1
@@ -158,4 +156,4 @@ cargo test --locked -p haqlite-turbolite --test mode_role_bail singlewriter_clie
 cargo test --locked -p haqlite-turbolite --test singlewriter_failover follower_apply_is_atomic_under_missing_page_group_race -- --nocapture
 ```
 
-The unbounded full command is `cargo test --locked --workspace --all-features --no-fail-fast`. It is expected to fail or hang for the reasons above; it is not a passing acceptance check.
+Full all-feature runtime acceptance still needs external fixtures. `cargo test --locked --workspace --all-features --no-fail-fast` is not a passing acceptance check without those services. The passing default-feature sweep does not establish live service, smaller-page, ignored stress-test or cross-platform coverage.

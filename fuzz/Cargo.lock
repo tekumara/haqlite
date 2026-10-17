@@ -3445,7 +3445,7 @@ dependencies = [
 [[package]]
 name = "walrust-core"
 version = "0.7.0"
-source = "git+https://github.com/russellromney/walrust.git?rev=1c0656e2ce896a38fdf064a27402f6a8deb1f5aa#1c0656e2ce896a38fdf064a27402f6a8deb1f5aa"
+source = "git+https://github.com/tekumara/walrust.git?rev=1d59c45d3c944b0d606989d07e3e013b175b0b3e#1d59c45d3c944b0d606989d07e3e013b175b0b3e"
 dependencies = [
  "anyhow",
  "async-trait",

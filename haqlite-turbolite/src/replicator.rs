@@ -864,7 +864,7 @@ impl TurboliteWalReplicator {
             vfs.shared_state()
                 .materialize_manifest_to_file(&decoded_for_attempt, &cache_path)
                 .context("turbolite replay cursor materialize failed")?;
-            vfs.set_manifest_bytes(&payload_owned)
+            vfs.set_manifest_bytes_under_replay_write(&payload_owned, &_gate)
                 .map_err(|e| anyhow!("turbolite replay cursor set_manifest_bytes failed: {}", e))?;
             let page_count = vfs.manifest().page_count;
             vfs.sync_after_external_restore(page_count);
@@ -994,7 +994,7 @@ impl TurboliteWalReplicator {
                     .context("turbolite materialize failed")?;
 
                 // Materialize succeeded; commit the new manifest.
-                vfs.set_manifest_bytes(&payload_for_attempt)
+                vfs.set_manifest_bytes_under_replay_write(&payload_for_attempt, &_gate)
                     .map_err(|e| anyhow!("turbolite set_manifest_bytes failed: {}", e))?;
 
                 let page_count = vfs.manifest().page_count;

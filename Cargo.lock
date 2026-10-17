@@ -4331,7 +4331,7 @@ dependencies = [
 [[package]]
 name = "turbolite"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/turbolite.git?rev=6a4f60741bbfd4243331bd837227fb264bdaa349#6a4f60741bbfd4243331bd837227fb264bdaa349"
+source = "git+https://github.com/tekumara/turbolite.git?rev=d2b48f32282584d5713eb20d8ac5206a3314fb46#d2b48f32282584d5713eb20d8ac5206a3314fb46"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4520,7 +4520,7 @@ dependencies = [
 [[package]]
 name = "walrust-core"
 version = "0.7.0"
-source = "git+https://github.com/russellromney/walrust.git?rev=1c0656e2ce896a38fdf064a27402f6a8deb1f5aa#1c0656e2ce896a38fdf064a27402f6a8deb1f5aa"
+source = "git+https://github.com/tekumara/walrust.git?rev=1d59c45d3c944b0d606989d07e3e013b175b0b3e#1d59c45d3c944b0d606989d07e3e013b175b0b3e"
 dependencies = [
  "anyhow",
  "async-trait",

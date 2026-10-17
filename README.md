@@ -10,7 +10,7 @@ Part of the [hadb](https://github.com/russellromney/hadb) ecosystem for making a
 
 ## Dependency upgrade status
 
-The upstream-main dependency upgrade is not fully validated. Base-library checks pass, but tiered replication still has failing safety tests and deadlocks. See the [dependency upgrade report](docs/dependency-upgrade.md) for exact revisions, compatibility adapters, build prerequisites and test results.
+The dependency upgrade uses full-SHA-pinned repair commits from `tekumara/walrust` and `tekumara/turbolite`. The local default-feature workspace passes, including the repaired safety and adoption regressions. Live service validation and smaller-page import/replay safety remain incomplete. See the [dependency upgrade report](docs/dependency-upgrade.md) for exact revisions, compatibility adapters, build prerequisites and test results.
 
 ## Quick start
 
