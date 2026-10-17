@@ -50,7 +50,7 @@ fn build_coordinator(
         "test/",
         replication_config,
     ));
-    let follower_behavior = Arc::new(SqliteFollowerBehavior::new(walrust_storage));
+    let follower_behavior = Arc::new(SqliteFollowerBehavior::new());
 
     Coordinator::new(
         replicator,

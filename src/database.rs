@@ -538,7 +538,7 @@ impl HaQLiteBuilder {
         );
 
         let follower_behavior: Arc<dyn hadb::FollowerBehavior> =
-            Arc::new(SqliteFollowerBehavior::new(walrust_storage.clone()));
+            Arc::new(SqliteFollowerBehavior::new());
 
         let coordinator = Coordinator::new(
             replicator,
