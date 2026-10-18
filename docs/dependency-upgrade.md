@@ -1,6 +1,6 @@
 # Sibling dependency upgrade
 
-This checkout now selects the patched `tekumara` forks and applies the lock-aware manifest integration. The default-feature workspace passes its local runtime sweep, including the previously failing Flotilla and deadlocking adoption tests. Live service validation and smaller-page import/replay safety remain incomplete; this is not full acceptance.
+This checkout selects the patched `tekumara` forks and applies the lock-aware manifest integration. The default-feature workspace passes with RustFS, including the repaired Flotilla and adoption tests. However, the public S3 lease/WAL runner fails during restored-leader resume, and 35 legacy tests request unimplemented SharedWriter modes. Full S3 HA acceptance is not green. Smaller-page import/replay safety also remains incomplete.
 
 The work is independent of Node bindings PR #13 and follower-cursor issue #12. Neither is implemented or declared fixed here.
 
@@ -74,7 +74,7 @@ The original Turbolite setter reacquired the non-reentrant replay write lock alr
 
 The fork adds `set_manifest_bytes_under_replay_write(bytes, guard)`, which validates that the supplied guard belongs to this exact VFS. Haqlite now uses it at the 4 installation calls already inside its write gate. Materialization, replay finalization and cursor handling keep their existing protection. The ordinary setter retains its no-op fast path and checks the version floor under the gate before adoption.
 
-With the selected Git commits, all 6 `mode_role_bail` cases complete. All 11 `singlewriter_failover` harness cases also complete, including atomic adoption and concurrent-reader consistency. Four object-storage cases return early without `TIERED_TEST_BUCKET`; they do not establish live S3 coverage.
+With the selected Git commits, all 6 `mode_role_bail` cases complete. All 11 `singlewriter_failover` cases also pass against RustFS, including the 4 object-storage cases previously gated by `TIERED_TEST_BUCKET`. These tests use in-memory coordination stores; they do not validate the S3 lease backend.
 
 ### Failed final sync remains retryable
 
@@ -111,7 +111,7 @@ Validation of the selected fork Git commits on macOS arm64 used Rust 1.99.0. The
 | Standalone fuzz locked check, all targets | passed; fuzzing itself was not run |
 | Workspace library Clippy, all features | passed with warnings; not warning-free |
 | Formatting and whitespace checks | passed |
-| Full all-feature workspace runtime acceptance with external services | unvalidated |
+| Full all-feature workspace runtime acceptance | not green: 35 legacy SharedWriter failures; public S3 lease runner also fails |
 
 The root harness count includes an environment-gated NATS test that returns early without `NATS_URL`. It is not evidence of live NATS coverage.
 
@@ -119,10 +119,70 @@ The default-feature sweep now completes every target, including `flotilla_regres
 
 External-service validation remains incomplete:
 
-- the original all-feature sweep had 35 legacy S3 failures from missing `TIERED_TEST_BUCKET`, across `e2e_modes`, `lease_split_brain`, `mode_f_s3primary`, `mode_i_production`, `mode_matrix`, `shared_mode` and `turbolite_split_brain`; those cases have not been rerun with service credentials
-- some bootstrap and object-store cursor tests return early when that variable is absent; harness success is not service-backed validation
-- live S3-compatible storage, NATS and HTTP service deployments were not provisioned or validated
+- RustFS-backed tiered data paths pass, but the public S3 lease/WAL scenario fails as detailed below
+- the 35 legacy failures now reach the builder and reject unimplemented SharedWriter modes, rather than missing bucket configuration
+- NATS, external HTTP deployments and production S3 providers were not provisioned or validated
 - the existing ignored file-descriptor stress test, cross-platform builds and fuzz execution were not run
+
+## RustFS validation
+
+Validation used the committed sources at `6d34c20`, with RustFS 1.0.3 on Linux arm64. A dedicated container exposed S3 only on loopback. Tests used a new isolated bucket and temporary credentials, not an existing service or production bucket.
+
+The exact image was:
+
+```text
+rustfs/rustfs@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+```
+
+| Check with RustFS configured | Result |
+| --- | --- |
+| S3 protocol preflight | 8 checks passed: conditional create/update, stale ETag rejection, range reads, pagination and batch deletion |
+| All-feature S3-related integration collection, 11 targets | 27 passed, 35 failed, no timeouts |
+| Default-feature workspace, serial | 331 passed, no failures, one existing ignored stress test |
+| Root package, all features | 225 harness passes, no failures; NATS still environment-gated |
+| Tiered library, all features | 43 passed |
+| Workspace all-feature doctests | 6 passed |
+| Public S3 lease/WAL semantic runner, 4 workers with 20 operations each | failed, exit 1; restored leaders could not open and the audit did not complete |
+
+The integration collection includes local cases, not 27 independent S3 cases. All 7 previously gated S3 cases executed successfully: 2 object-store cursor cases, one continuous-bootstrap case and 4 single-writer failover/workload cases. Real `.tlmd`, `.hadbp`, page-group and manifest objects were observed in the test bucket.
+
+### Legacy SharedWriter failures
+
+All 35 failures come from the `legacy-s3-mode-tests` feature across `e2e_modes`, `lease_split_brain`, `mode_f_s3primary`, `mode_i_production`, `mode_matrix`, `shared_mode` and `turbolite_split_brain`. They fail with `SharedWriter mode not yet implemented in haqlite-turbolite`. This is the explicit builder guard, not a RustFS transport or credentials error. No assertions were removed or weakened.
+
+### S3 lease fencing blocks restored leaders
+
+The tiered object-storage tests use in-memory lease and manifest stores. To check actual S3 coordination, validation also ran `haqlite-e2e`, which uses the public builder with S3 lease and WAL stores. Its current implementation selects `SingleWriter` with `Replicated(1s)` durability, despite the legacy `cloud` CLI label.
+
+Only the first worker completed its 20 operations. The other 3 workers failed to open, and the auditor failed with `cannot resume restored leader without an active lease`.
+
+At the pinned hadb revision, `S3LeaseStore` returns S3's opaque, quoted hexadecimal ETag. `DbLease::update_fence_token` requires a `u64` revision when a fence writer is attached. It logs `non-u64 etag` and clears the fence. Haqlite's `SqliteReplicator::resume_or_add` then rejects the missing active fence.
+
+This exposes a compatibility gap between S3 lease tokens and enforced lease fencing. The RustFS conditional operations passed their independent preflight. Disabling the resume guard would not establish safe S3 HA behavior and was not used as a workaround. No data-loss or final-state integrity conclusion can be drawn from the incomplete audit.
+
+### Reproduce the S3 checks
+
+Start an isolated RustFS instance, create a fresh bucket and set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION=us-east-1`, `AWS_ENDPOINT_URL` and `TIERED_TEST_BUCKET`. Do not point these tests at a production bucket. Keep `NATS_URL` unset unless NATS is also being validated.
+
+```sh
+# Supported-feature sweep with the S3 gates enabled.
+cargo test --locked --workspace --no-fail-fast -- --test-threads=1
+
+# All-feature S3 collection, including legacy unsupported modes.
+cargo test --locked -p haqlite-turbolite --all-features --no-fail-fast \
+  --test cursor_object_store --test continuous_bootstrap \
+  --test singlewriter_failover --test e2e_modes --test lease_split_brain \
+  --test mode_f_s3primary --test mode_i_production --test mode_matrix \
+  --test shared_mode --test turbolite_split_brain --test test_manifest_store \
+  -- --test-threads=1
+
+# Public S3 lease/WAL path; currently fails during restored-leader resume.
+cargo run --locked --bin haqlite-e2e -- \
+  --bucket "$TIERED_TEST_BUCKET" --endpoint "$AWS_ENDPOINT_URL" \
+  --workers 4 --writes-per-worker 20 --lease-ttl 10 --write-timeout 10
+```
+
+The dedicated container, its anonymous volume and temporary credentials file were removed after validation. Logs and structured results remain under the ignored `target/upstream-fixes/rustfs-validation/` directory. Source code, tests, manifests and lockfiles were unchanged.
 
 ## Reproduce the checks
 
@@ -156,4 +216,4 @@ cargo test --locked -p haqlite-turbolite --test mode_role_bail singlewriter_clie
 cargo test --locked -p haqlite-turbolite --test singlewriter_failover follower_apply_is_atomic_under_missing_page_group_race -- --nocapture
 ```
 
-Full all-feature runtime acceptance still needs external fixtures. `cargo test --locked --workspace --all-features --no-fail-fast` is not a passing acceptance check without those services. The passing default-feature sweep does not establish live service, smaller-page, ignored stress-test or cross-platform coverage.
+`cargo test --locked --workspace --all-features --no-fail-fast` is not a passing acceptance check: the legacy SharedWriter cases fail even with RustFS available. The separate public S3 lease/WAL runner also exposes the lease-fencing compatibility gap above. The passing default-feature sweep does not establish full S3 HA, NATS, smaller-page, ignored stress-test or cross-platform coverage.
