@@ -3,7 +3,7 @@
 //! Verifies that:
 //! 1. Custom LeaseStore is used when provided via builder
 //! 2. NatsLeaseStore integration works (gated by NATS_URL env var)
-//! 3. Default S3LeaseStore path still works when no custom store is set
+//! 3. Real S3 leases support restore, leader resume and subsequent publication
 
 mod common;
 
@@ -474,6 +474,128 @@ async fn nats_lease_store_integration() {
 
     // Clean up the test bucket.
     let _ = jetstream.delete_key_value(&bucket_name).await;
+}
+
+/// Real S3 leases must authorize restored leaders, not just the first writer.
+/// Run explicitly against an isolated bucket; missing configuration is an error,
+/// rather than a passing test that silently skips the storage path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires an isolated S3 bucket and credentials; run with --ignored"]
+async fn s3_leases_resume_and_republish_from_fresh_local_files() {
+    async fn open_node(
+        path: &std::path::Path,
+        bucket: &str,
+        endpoint: Option<&str>,
+        prefix: &str,
+        instance: &str,
+    ) -> Result<HaQLite> {
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .load()
+            .await;
+        let mut client = aws_sdk_s3::config::Builder::from(&config).force_path_style(true);
+        if let Some(endpoint) = endpoint {
+            client = client.endpoint_url(endpoint);
+        }
+        let lease = haqlite::S3LeaseStore::new(
+            aws_sdk_s3::Client::from_conf(client.build()),
+            bucket.to_owned(),
+        )
+        .with_prefix(prefix);
+        let storage = hadb_storage_s3::S3Storage::from_env(bucket.to_owned(), endpoint).await?;
+        Ok(HaQLite::builder()
+            .mode(haqlite::HaMode::SingleWriter)
+            .durability(hadb::Durability::Replicated(Duration::from_secs(600)))
+            .prefix(prefix)
+            .instance_id(instance)
+            .forwarding_mode(haqlite::ForwardingMode::Disabled)
+            .lease_store(Arc::new(lease))
+            .walrust_storage(Arc::new(storage))
+            .lease_ttl(10)
+            .open(path.to_str().expect("UTF-8 temporary path"), SCHEMA)
+            .await?)
+    }
+
+    let bucket = std::env::var("TIERED_TEST_BUCKET").expect("TIERED_TEST_BUCKET is required");
+    let endpoint = std::env::var("AWS_ENDPOINT_URL").ok();
+    let prefix = format!("s3-lease-resume/{}/", uuid::Uuid::new_v4());
+    let first_dir = TempDir::new().unwrap();
+    let second_dir = TempDir::new().unwrap();
+    let audit_dir = TempDir::new().unwrap();
+
+    let mut first = open_node(
+        &first_dir.path().join("db.db"),
+        &bucket,
+        endpoint.as_deref(),
+        &prefix,
+        "first",
+    )
+    .await
+    .expect("open initial S3-backed leader");
+    first
+        .execute_async("INSERT INTO lease_test VALUES (1, 'first')", &[])
+        .await
+        .unwrap();
+    first
+        .close()
+        .await
+        .expect("flush first leader and release lease");
+
+    let mut second = open_node(
+        &second_dir.path().join("db.db"),
+        &bucket,
+        endpoint.as_deref(),
+        &prefix,
+        "second",
+    )
+    .await
+    .expect("resume restored leader under a new S3 lease");
+    let restored: String = second
+        .query_row_local("SELECT value FROM lease_test WHERE id = 1", &[], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(restored, "first");
+    second
+        .execute_async("UPDATE lease_test SET value = 'updated' WHERE id = 1", &[])
+        .await
+        .unwrap();
+    second
+        .execute_async("INSERT INTO lease_test VALUES (2, 'second')", &[])
+        .await
+        .unwrap();
+    second
+        .close()
+        .await
+        .expect("flush restored leader and release lease");
+
+    let mut audit = open_node(
+        &audit_dir.path().join("db.db"),
+        &bucket,
+        endpoint.as_deref(),
+        &prefix,
+        "audit",
+    )
+    .await
+    .expect("restore and audit both generations from S3");
+    let count: i64 = audit
+        .query_row_local("SELECT COUNT(*) FROM lease_test", &[], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 2);
+    for (id, expected) in [(1_i64, "updated"), (2, "second")] {
+        let value: String = audit
+            .query_row_local(
+                "SELECT value FROM lease_test WHERE id = ?1",
+                &[&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, expected);
+    }
+    let integrity: String = audit
+        .query_row_local("PRAGMA integrity_check", &[], |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+    audit.close().await.unwrap();
 }
 
 /// Verify that when NATS connection fails, the serve code path would

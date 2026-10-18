@@ -23,9 +23,9 @@ rev = "a3e554aedd6313175a367485bd2718a0e74ff1cc"
 
 # Match the root workspace: patches are not inherited by standalone fuzz builds.
 [patch.crates-io]
-hadb-storage = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
-hadb-io = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
-hadb-changeset = { git = "https://github.com/russellromney/hadb.git", rev = "3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b" }
+hadb-storage = { git = "https://github.com/tekumara/hadb.git", rev = "04ae183df58186672379206ba5f2f56c10b168df" }
+hadb-io = { git = "https://github.com/tekumara/hadb.git", rev = "04ae183df58186672379206ba5f2f56c10b168df" }
+hadb-changeset = { git = "https://github.com/tekumara/hadb.git", rev = "04ae183df58186672379206ba5f2f56c10b168df" }
 
 [dependencies.serde_json]
 version = "1"

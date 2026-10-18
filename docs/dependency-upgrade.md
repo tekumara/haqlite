@@ -1,20 +1,20 @@
 # Sibling dependency upgrade
 
-This checkout selects the patched `tekumara` forks and applies the lock-aware manifest integration. The default-feature workspace passes with RustFS, including the repaired Flotilla and adoption tests. However, the public S3 lease/WAL runner fails during restored-leader resume, and 35 legacy tests request unimplemented SharedWriter modes. Full S3 HA acceptance is not green. Smaller-page import/replay safety also remains incomplete.
+This checkout selects the patched `tekumara` forks and applies the lock-aware manifest integration. The public S3 lease/WAL runner now completes all 80 operations and its fresh-node audit. The default-feature workspace also passes with RustFS, including the repaired Flotilla and adoption tests. Full S3 HA acceptance is not green: 35 legacy tests request unimplemented SharedWriter modes, one supported all-feature promotion/replay case fails, and smaller-page import/replay safety remains incomplete. Further promotion/replay investigation is paused. This fork branch records the integration for review, not full runtime acceptance.
 
 The work is independent of Node bindings PR #13 and follower-cursor issue #12. Neither is implemented or declared fixed here.
 
-The repairs are published in [walrust PR 47](https://github.com/russellromney/walrust/pull/47) and [Turbolite PR 47](https://github.com/russellromney/turbolite/pull/47). The selected dependencies now contain those repairs. No temporary Git-source overrides are needed for this checkout.
+The repairs are published in [walrust PR 47](https://github.com/russellromney/walrust/pull/47), [Turbolite PR 47](https://github.com/russellromney/turbolite/pull/47) and [hadb PR 7](https://github.com/russellromney/hadb/pull/7). The selected dependencies contain those repairs. No temporary Git-source overrides are needed for this checkout.
 
 The existing worktree branch is `chore/haqlite-upstream-dependency-upgrade`, with managed target `main`. Starting HEAD, local `main` and `origin/main` all matched `db6db54b555a56c7352a5c9d57f1b998da05d199` before editing. The original upgrade was committed as `9b20551b12bafe9bcbf10f696a7a6972b8e5998d` and patch preparation as `40cb39b44e0c9de6772abed40ad7061ca1311a53`. The upstream PRs were prepared in separately requested app-managed worktrees. Haqlite's fork-pin update stays in this existing worktree.
 
 ## Source revisions
 
-The fork branch heads were verified on 17 October 2026. Cargo pins full commits, not moving branches. Hadb and Hrana retain the original verified upstream revisions.
+Cargo pins full commits, not moving branches. The walrust and Turbolite repairs were published on 17 October 2026. The hadb repair was published and verified on 18 October 2026. Hrana retains the original verified upstream revision.
 
 | Repository | Package version | Git revision |
 | --- | --- | --- |
-| russellromney/hadb | 0.5.0 | `3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b` |
+| tekumara/hadb | 0.5.0 | `04ae183df58186672379206ba5f2f56c10b168df` |
 | tekumara/walrust | `walrust-core` 0.7.0 | `1d59c45d3c944b0d606989d07e3e013b175b0b3e` |
 | tekumara/turbolite | 0.5.0 | `d2b48f32282584d5713eb20d8ac5206a3314fb46` |
 | russellromney/hrana-server | 0.1.0 | `a3e554aedd6313175a367485bd2718a0e74ff1cc` |
@@ -74,7 +74,7 @@ The original Turbolite setter reacquired the non-reentrant replay write lock alr
 
 The fork adds `set_manifest_bytes_under_replay_write(bytes, guard)`, which validates that the supplied guard belongs to this exact VFS. Haqlite now uses it at the 4 installation calls already inside its write gate. Materialization, replay finalization and cursor handling keep their existing protection. The ordinary setter retains its no-op fast path and checks the version floor under the gate before adoption.
 
-With the selected Git commits, all 6 `mode_role_bail` cases complete. All 11 `singlewriter_failover` cases also pass against RustFS, including the 4 object-storage cases previously gated by `TIERED_TEST_BUCKET`. These tests use in-memory coordination stores; they do not validate the S3 lease backend.
+With the selected Git commits, all 6 `mode_role_bail` cases complete. The default-feature `singlewriter_failover` target passes all 11 cases against RustFS, including the 4 previously gated object-storage cases. Its all-feature run now has an unresolved failure, reported below. These tests use in-memory coordination stores; they do not validate the S3 lease backend.
 
 ### Failed final sync remains retryable
 
@@ -105,28 +105,32 @@ Validation of the selected fork Git commits on macOS arm64 used Rust 1.99.0. The
 | Check | Result |
 | --- | --- |
 | Workspace locked check, all targets and all features | passed |
-| Full default-feature workspace runtime sweep, serial | 331 harness passes, no failures, one existing ignored stress test |
-| Root package locked tests, all features, including doctests | 225 harness passes, no failures |
+| Full default-feature workspace runtime sweep, serial | 332 passed, no failures, 2 ignored |
+| Root package locked tests, all features, including doctests | 226 harness passes, no failures, one ignored service regression |
 | Tiered library tests, all features | 43 passed |
 | Standalone fuzz locked check, all targets | passed; fuzzing itself was not run |
 | Workspace library Clippy, all features | passed with warnings; not warning-free |
 | Formatting and whitespace checks | passed |
-| Full all-feature workspace runtime acceptance | not green: 35 legacy SharedWriter failures; public S3 lease runner also fails |
+| Explicit lease and fenced-close regressions | 7 passed, including the normally ignored real-S3 lifecycle case |
+| Public S3 lease/WAL semantic runner | 80 operations acknowledged, zero failed; fresh audit passed, 32 expected rows and 32 found |
+| All-feature S3-related collection, 11 targets | 26 passed, 36 failed: 35 unsupported SharedWriter cases plus one promotion/replay failure |
+| Full all-feature workspace runtime acceptance | not green; the supported promotion/replay failure is not waived |
 
-The root harness count includes an environment-gated NATS test that returns early without `NATS_URL`. It is not evidence of live NATS coverage.
+The root harness count includes an environment-gated NATS test that returns early without `NATS_URL`. It is not evidence of live NATS coverage. The default workspace's 2 ignores are the existing file-descriptor stress test and the new real-S3 lifecycle regression. The latter passed when explicitly invoked; the stress test remains unrun. Counts overlap across commands.
 
-The default-feature sweep now completes every target, including `flotilla_regression`, `mode_role_bail` and `singlewriter_failover`. No test assertions were changed for the fork-pin update. Locked metadata confirms both repaired crates come from the specified fork Git commits, not local path replacements. Lockfile changes only replace the intended Git source entries.
+The default-feature sweep completes every target, including `flotilla_regression`, `mode_role_bail` and `singlewriter_failover`. Existing assertions remain intact. Locked metadata confirms the repaired dependencies come from the specified fork Git commits, not local replacements. The downloaded hadb checkout matches every tracked native file byte-for-byte. The latest lockfile changes replace only hadb Git sources and add the required `serde_json` dependency edge to `hadb-lease`; package versions and checksums are unchanged.
 
 External-service validation remains incomplete:
 
-- RustFS-backed tiered data paths pass, but the public S3 lease/WAL scenario fails as detailed below
-- the 35 legacy failures now reach the builder and reject unimplemented SharedWriter modes, rather than missing bucket configuration
+- RustFS-backed tiered data paths and the public S3 lease/WAL scenario pass, but do not establish general S3 HA
+- the 35 legacy failures reach the builder and reject unimplemented SharedWriter modes, rather than missing bucket configuration
+- the supported all-feature promotion/replay case also fails; its isolated rerun does not resolve the full-target failure
 - NATS, external HTTP deployments and production S3 providers were not provisioned or validated
 - the existing ignored file-descriptor stress test, cross-platform builds and fuzz execution were not run
 
 ## RustFS validation
 
-Validation used the committed sources at `6d34c20`, with RustFS 1.0.3 on Linux arm64. A dedicated container exposed S3 only on loopback. Tests used a new isolated bucket and temporary credentials, not an existing service or production bucket.
+Baseline validation used the committed sources at `6d34c20`, with RustFS 1.0.3 on Linux arm64. Its results below are historical; the subsequent lease repair is reported separately. A dedicated container exposed S3 only on loopback. Tests used a new isolated bucket and temporary credentials, not an existing service or production bucket.
 
 The exact image was:
 
@@ -150,15 +154,56 @@ The integration collection includes local cases, not 27 independent S3 cases. Al
 
 All 35 failures come from the `legacy-s3-mode-tests` feature across `e2e_modes`, `lease_split_brain`, `mode_f_s3primary`, `mode_i_production`, `mode_matrix`, `shared_mode` and `turbolite_split_brain`. They fail with `SharedWriter mode not yet implemented in haqlite-turbolite`. This is the explicit builder guard, not a RustFS transport or credentials error. No assertions were removed or weakened.
 
-### S3 lease fencing blocks restored leaders
+### Baseline S3 lease fencing blocker
 
 The tiered object-storage tests use in-memory lease and manifest stores. To check actual S3 coordination, validation also ran `haqlite-e2e`, which uses the public builder with S3 lease and WAL stores. Its current implementation selects `SingleWriter` with `Replicated(1s)` durability, despite the legacy `cloud` CLI label.
 
 Only the first worker completed its 20 operations. The other 3 workers failed to open, and the auditor failed with `cannot resume restored leader without an active lease`.
 
-At the pinned hadb revision, `S3LeaseStore` returns S3's opaque, quoted hexadecimal ETag. `DbLease::update_fence_token` requires a `u64` revision when a fence writer is attached. It logs `non-u64 etag` and clears the fence. Haqlite's `SqliteReplicator::resume_or_add` then rejects the missing active fence.
+At the original hadb revision `3142b3d`, `S3LeaseStore` returned S3's opaque, quoted hexadecimal ETag. `DbLease::update_fence_token` requires a `u64` revision when a fence writer is attached. It logged `non-u64 etag` and cleared the fence. Haqlite's `SqliteReplicator::resume_or_add` then rejected the missing active fence.
 
-This exposes a compatibility gap between S3 lease tokens and enforced lease fencing. The RustFS conditional operations passed their independent preflight. Disabling the resume guard would not establish safe S3 HA behavior and was not used as a workaround. No data-loss or final-state integrity conclusion can be drawn from the incomplete audit.
+This exposed a compatibility gap between S3 lease tokens and enforced lease fencing. The RustFS conditional operations passed their independent preflight. The resume guard was not disabled. No data-loss or final-state integrity conclusion can be drawn from that incomplete baseline audit.
+
+### Ordered S3 lease revisions and retryable shutdown
+
+The selected hadb fork persists a numeric per-key revision with the opaque lease payload. Physical S3 ETags remain opaque and are used only for atomic conditional PUT. Release retains a revisioned tombstone, so release/reclaim and process restart cannot reset the fence. Malformed records and revision exhaustion fail closed. Unsupported conditional services are rejected; there is no HEAD plus unconditional-PUT fallback.
+
+Lease cleanup uses the actual ownership task's last confirmed receipt, never a reread that could adopt a successor's session. The new `release_if_match` default CAS-writes canonical expired `LeaseData`; S3 writes a tombstone and memory performs guarded removal. Release promises relinquishment, not physical absence. External adapters must accept the sentinel; independent Cinch-server compatibility remains unvalidated. Failed or cancelled release may leave the lease until TTL.
+
+Independent review found a second blocker: shutdown stopped the lease owner before walrust's final upload, and ignored a nested removal error. Hadb now keeps confirmed ownership and renewal through final removal. A failed or timed-out flush retains the entry and owner for retry. Only successful removal is followed by owner stop/join, fence revocation and conditional release. Cancellation no longer detaches the ownership task. The resume guard, checksum validation and ordered fence comparisons remain enabled.
+
+Both public regressions failed against the baseline and pass against the downloaded fork commit:
+
+- `s3_leases_resume_and_republish_from_fresh_local_files` opens, writes, closes and restores through three fresh local directories using real S3 lease and WAL stores. It verifies rewritten and newly inserted rows and SQLite integrity.
+- `close_retries_pending_wal_under_the_held_lease` injects a storage outage while an acknowledged WAL write is pending. Close must fail; retry after recovery must succeed, and a fresh node must restore that row.
+
+The latter uses real SQLite/walrust with a fence-enforcing local storage wrapper. It is not an additional live-S3 test. Together with the existing lease cases, the explicit regression command reports 7 passed.
+
+The public semantic runner now reports all 4 workers completing 20 operations each: 80 acknowledged, zero failed. Its fresh auditor finds 32 expected rows and 32 actual rows, and prints `=== AUDIT PASSED ===` and `=== ALL PASSED ===`. This used the final downloaded Git dependency, not the earlier frozen local candidate.
+
+Final native hadb validation reports 122 core/coordinator/progress/ownership/property passes, 36 lease-adapter library passes and 8 explicit RustFS lease-contract passes: 166 in total. Its initial broader workspace attempt is not green: 533 passed, 12 failed and 8 ignored, overlapping the focused runs. All failures require unset `NATS_URL` in `turbodb-manifest-nats`; execution stopped there. The full native workspace was not rerun after the scheduling follow-up. Changed-package doctests executed zero examples with 3 ignored. The complete adversarial coordinator cleanup matrix and external service/platform coverage are not established by these counts.
+
+### Unresolved all-feature promotion/replay failure
+
+The final `04ae183` Git-pin collection reports 26 passed and 36 failed, not the historical 27/35. Besides the 35 unsupported modes, `singlewriter_promotion_publishes_usable_base` fails. Manifest v5 references missing page-group object `p/d/0_v5` for the full 30-second wait. This is an in-memory storage case, not a RustFS consistency or credential error.
+
+The intermediate `1c8e3d1` also failed the complete target, with 10 passed and one failed, while its isolated case passed. Failure points differed: one run could not materialize the published promotion base; another fresh third node retained only the base row despite existing sequence-3 and sequence-4 deltas. Two controlled full-target runs of the archived `8ad4ffc` baseline, with hadb `3142b3d` and the same fixture, each passed all 11 cases. The final pin's default-feature target also passes all 11. The remaining failure is not classified as a pre-existing flake or declared to be issue #12.
+
+Investigation independently proved a scheduling regression in `1c8e3d1`: raw `tokio::join!` placed the follower and monitor on one task, while Turbolite's `block_in_place` bridge suspends same-task siblings. The identical public-coordinator harness passed on `3142b3d`, failed at its internal 500 ms progress watchdog on `1c8e3d1`, and passed after the repair. Commit `04ae183` uses independently scheduled tasks directly retained in each database's owned task group. Cleanup explicitly joins every task before conditional release; cancelled waits retain the group and abort state. No detached owner or unchecked fence restoration is used.
+
+The frozen scheduling candidate passed the complete all-feature target twice, 11/11 each, but the final downloaded Git commit still failed the collection. Those candidate passes do not resolve or waive the missing-page-group failure. The exact retention/GC, publication or replay cause remains unproven. A scheduled extra final-target repeat was not run after the collection failed.
+
+Existing assertions, conditions and replay guards are unchanged. The test now reports its previously swallowed materialization error when it times out. At the user's request, investigation is paused. The user subsequently requested committing and pushing this snapshot to `tekumara/haqlite` on `chore/haqlite-upstream-dependency-upgrade`. Publishing the pin, tests and report does not waive the blocker or establish full runtime acceptance.
+
+Evidence includes `final-summary.json`, `final-provenance.json`, `final-s3-collection.log`, `fork-failover-diagnostic.log`, `fork-failover-target.log`, `baseline-failover-{target,repeat}.log` and `progress-candidate-{target,repeat}.log` under the repair evidence directory. Native scheduling red/green logs and the follow-up report remain in the managed hadb worktree's ignored `target/` directory.
+
+### S3 lease cutover requirements
+
+Stop old raw-format writers and drain in-flight requests and retries before upgrading. Legacy objects are converted only by matched mutation during a quiescent cutover. Mixed old/new writers and downgrade are unsupported. Unknown pre-migration numeric history cannot be reconstructed.
+
+Retain live lease objects and tombstones indefinitely. Exclude physical deletion, lifecycle expiry, delete markers, rollback and unsafe namespace reuse; bucket versioning alone is insufficient. The backend must preserve envelope metadata and body, provide consistent GET and support atomic conditional PUT. Revisions are ordered per key, not globally.
+
+Numeric lease revisions do not enforce WAL writes server-side. Consumer lease and epoch guards remain necessary; this repair is not a certification of general S3 HA.
 
 ### Reproduce the S3 checks
 
@@ -176,13 +221,20 @@ cargo test --locked -p haqlite-turbolite --all-features --no-fail-fast \
   --test shared_mode --test turbolite_split_brain --test test_manifest_store \
   -- --test-threads=1
 
-# Public S3 lease/WAL path; currently fails during restored-leader resume.
+# Explicit real-S3 lifecycle regression; missing configuration is an error.
+cargo test --locked --test test_lease_store \
+  s3_leases_resume_and_republish_from_fresh_local_files -- --exact --ignored
+
+# Local fence-enforced failed-close/retry regression.
+cargo test --locked --test fenced_close
+
+# Public S3 lease/WAL path; require all workers and AUDIT PASSED.
 cargo run --locked --bin haqlite-e2e -- \
   --bucket "$TIERED_TEST_BUCKET" --endpoint "$AWS_ENDPOINT_URL" \
   --workers 4 --writes-per-worker 20 --lease-ttl 10 --write-timeout 10
 ```
 
-The dedicated container, its anonymous volume and temporary credentials file were removed after validation. Logs and structured results remain under the ignored `target/upstream-fixes/rustfs-validation/` directory. Source code, tests, manifests and lockfiles were unchanged.
+Both dedicated fixtures were removed: each owned container, its anonymous volume and its temporary credentials file. No other service or volume was removed. Baseline logs remain under the ignored `target/upstream-fixes/rustfs-validation/` directory. Repair red/green logs, `final-result.json`, `final-summary.json`, provenance and cleanup evidence are under `target/upstream-fixes/s3-lease-repair/`. Temporary validation copies and path overrides are not committed.
 
 ## Reproduce the checks
 
@@ -216,4 +268,4 @@ cargo test --locked -p haqlite-turbolite --test mode_role_bail singlewriter_clie
 cargo test --locked -p haqlite-turbolite --test singlewriter_failover follower_apply_is_atomic_under_missing_page_group_race -- --nocapture
 ```
 
-`cargo test --locked --workspace --all-features --no-fail-fast` is not a passing acceptance check: the legacy SharedWriter cases fail even with RustFS available. The separate public S3 lease/WAL runner also exposes the lease-fencing compatibility gap above. The passing default-feature sweep does not establish full S3 HA, NATS, smaller-page, ignored stress-test or cross-platform coverage.
+`cargo test --locked --workspace --all-features --no-fail-fast` is not a passing acceptance check: the legacy SharedWriter cases and the supported promotion/replay case fail even with RustFS available. The separate public S3 lease/WAL runner now passes. These results do not establish full S3 HA, live NATS or HTTP, production-provider, smaller-page, ignored stress-test or cross-platform coverage.

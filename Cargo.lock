@@ -1687,7 +1687,7 @@ dependencies = [
 [[package]]
 name = "hadb"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1708,7 +1708,7 @@ dependencies = [
 [[package]]
 name = "hadb-changeset"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1722,7 +1722,7 @@ dependencies = [
 [[package]]
 name = "hadb-cli"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1739,7 +1739,7 @@ dependencies = [
 [[package]]
 name = "hadb-io"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1761,7 +1761,7 @@ dependencies = [
 [[package]]
 name = "hadb-lease"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1769,12 +1769,13 @@ dependencies = [
  "chrono",
  "hadb-storage 0.5.0",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "hadb-lease-cinch"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1791,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "hadb-lease-mem"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1801,7 +1802,7 @@ dependencies = [
 [[package]]
 name = "hadb-lease-nats"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1814,7 +1815,7 @@ dependencies = [
 [[package]]
 name = "hadb-lease-s3"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1844,7 +1845,7 @@ dependencies = [
 [[package]]
 name = "hadb-storage"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1854,7 +1855,7 @@ dependencies = [
 [[package]]
 name = "hadb-storage-cinch"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1884,7 +1885,7 @@ dependencies = [
 [[package]]
 name = "hadb-storage-local"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1896,7 +1897,7 @@ dependencies = [
 [[package]]
 name = "hadb-storage-s3"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4289,7 +4290,7 @@ dependencies = [
 [[package]]
 name = "turbodb"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4302,7 +4303,7 @@ dependencies = [
 [[package]]
 name = "turbodb-manifest-cinch"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4319,7 +4320,7 @@ dependencies = [
 [[package]]
 name = "turbodb-manifest-mem"
 version = "0.5.0"
-source = "git+https://github.com/russellromney/hadb.git?rev=3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b#3142b3d6062a7aa5a8a1cb211ee38b647fe0f48b"
+source = "git+https://github.com/tekumara/hadb.git?rev=04ae183df58186672379206ba5f2f56c10b168df#04ae183df58186672379206ba5f2f56c10b168df"
 dependencies = [
  "anyhow",
  "async-trait",

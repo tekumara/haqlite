@@ -10,7 +10,7 @@ Part of the [hadb](https://github.com/russellromney/hadb) ecosystem for making a
 
 ## Dependency upgrade status
 
-The dependency upgrade uses full-SHA-pinned repair commits from `tekumara/walrust` and `tekumara/turbolite`. The default-feature workspace and RustFS-backed tiered data-path checks pass. However, S3-lease-backed validation fails during restored-leader resume, and legacy SharedWriter tests request unimplemented modes. Full S3 HA and smaller-page import/replay safety are not established. See the [dependency upgrade report](docs/dependency-upgrade.md) for exact revisions, compatibility boundaries and test results.
+The dependency upgrade uses full-SHA-pinned repair commits from `tekumara/hadb`, `tekumara/walrust` and `tekumara/turbolite`. The default-feature workspace, RustFS-backed tiered data paths and public S3 lease/WAL runner pass. The runner completes all 80 operations and its fresh-node audit. Legacy SharedWriter modes remain unimplemented, and an all-feature promotion/replay regression is under investigation. Full S3 HA and smaller-page import/replay safety are not established. The S3 lease format also requires a quiescent cutover and retained tombstones. See the [dependency upgrade report](docs/dependency-upgrade.md) for revisions, migration requirements and test results.
 
 ## Quick start
 

@@ -249,8 +249,9 @@ impl HaQLiteBuilder {
 
     /// Use a custom LeaseStore instead of the default S3LeaseStore.
     ///
-    /// Works with any `LeaseStore` implementation: NATS, Redis, etcd, HTTP, etc.
-    /// When set, the builder skips S3LeaseStore construction in `open()`.
+    /// Fenced replication requires positive, persistently ordered numeric CAS
+    /// revisions, as provided by the S3, NATS KV and fenced HTTP adapters.
+    /// A custom adapter must preserve that ordering across release and reclaim.
     pub fn lease_store(mut self, store: Arc<dyn hadb::LeaseStore>) -> Self {
         self.lease_store = Some(store);
         self

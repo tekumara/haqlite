@@ -1709,17 +1709,21 @@ async fn singlewriter_promotion_publishes_usable_base() {
         // the production follower treats that as a transient and retries
         // on the next poll. Mirror that here — a materialize error means
         // "not ready yet", not a hard failure.
-        let published_count =
-            (materialized_manifest_count(&follower.vfs, &m, "t").await).unwrap_or(0);
+        let (published_count, materialization_error) =
+            match materialized_manifest_count(&follower.vfs, &m, "t").await {
+                Ok(count) => (count, None),
+                Err(error) => (0, Some(format!("{error:#}"))),
+            };
         if m.version > pre_manifest.version && published_count >= 1 {
             break bytes;
         }
         if Instant::now() >= deadline {
             panic!(
-                "promotion manifest did not publish the replayed pre-crash base past pre-promotion v{} within timeout; last version={}, last materialized count={}",
+                "promotion manifest did not publish the replayed pre-crash base past pre-promotion v{} within timeout; last version={}, last materialized count={}, last materialization error={:?}",
                 pre_manifest.version,
                 m.version,
                 published_count,
+                materialization_error,
             );
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
